@@ -37,14 +37,16 @@ brew install ollama
 # Start Ollama service
 ollama serve
 
-# Download recommended models (in a new terminal)
-ollama pull qwen3:4b          # General chat (4B params, good balance)
-ollama pull qwen2.5-coder:7b  # Code-focused (7B params)
-ollama pull llava             # Vision/image analysis
+# Download models (in a new terminal)
+# Chat models (pick at least one):
+ollama pull qwen3:4b            # Recommended: Good balance of speed/quality
+ollama pull qwen2.5-coder:7b    # Code-focused (7B params)
+ollama pull qwen2.5-coder:1.5b  # Lightweight, fast
+ollama pull llama3              # General purpose
+ollama pull mistral             # Alternative general purpose
 
-# Optional: Larger models for better quality
-ollama pull qwen2.5-coder:14b # Better code understanding
-ollama pull llama3:8b         # General purpose
+# Vision model (for image analysis):
+ollama pull llava               # Required for Vision mode
 ```
 
 ### 3. Install Python Dependencies
