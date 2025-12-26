@@ -1413,11 +1413,11 @@ def main():
         
         # Model Selector logic based on mode
         if mode == "Vision (Images)":
-            model_options = ["llava", "llama3.2-vision"]
+            model_options = ["llava:7b", "llama3.2-vision"]
             model_name = st.selectbox("Vision Model", options=model_options, index=0)
             st.info(f"Using Vision Model: {model_name}")
         else:
-            model_options = ["qwen3:4b", "qwen2.5-coder:7b", "qwen2.5-coder:1.5b", "llama3", "mistral"]
+            model_options = ["qwen3:4b", "qwen2.5-coder:7b", "qwen2.5-coder:1.5b", "llama3.2:3b", "mistral:7b"]
             model_name = st.selectbox("Model", options=model_options, index=1)
 
         # Context/File Controls (Only in Chat Mode)

@@ -42,11 +42,11 @@ ollama serve
 ollama pull qwen3:4b            # Recommended: Good balance of speed/quality
 ollama pull qwen2.5-coder:7b    # Code-focused (7B params)
 ollama pull qwen2.5-coder:1.5b  # Lightweight, fast
-ollama pull llama3              # General purpose
-ollama pull mistral             # Alternative general purpose
+ollama pull llama3.2:3b         # General purpose (3B params)
+ollama pull mistral:7b          # Alternative general purpose (7B params)
 
 # Vision model (for image analysis):
-ollama pull llava               # Required for Vision mode
+ollama pull llava:7b            # Required for Vision mode
 ```
 
 ### 3. Install Python Dependencies
