@@ -1,0 +1,68 @@
+# Omniscience Pro - Docker Compose with NVIDIA GPU Support
+# Usage:
+#   docker-compose up -d       # Start everything
+#   docker-compose down        # Stop everything
+#   docker-compose logs -f     # View logs
+
+services:
+  # Ollama LLM Server (with GPU)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: omniscience-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Pull models on first run (one-time setup)
+  ollama-setup:
+    image: ollama/ollama:latest
+    container_name: omniscience-ollama-setup
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Pulling models..."
+        ollama pull qwen3:4b
+        ollama pull qwen2.5-coder:7b
+        echo "Models ready!"
+    restart: "no"
+
+  # Omniscience Pro Application
+  app:
+    build: .
+    container_name: omniscience-app
+    ports:
+      - "8501:8501"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./db_omniscience:/app/db_omniscience
+      - ./chats:/app/chats
+      - ./uploads:/app/uploads
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

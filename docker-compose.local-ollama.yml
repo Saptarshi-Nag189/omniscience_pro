@@ -1,0 +1,22 @@
+# Omniscience Pro - Docker Compose (App only, uses LOCAL Ollama)
+# Use this if you already have Ollama running on your host machine
+# Usage:
+#   docker-compose -f docker-compose.local-ollama.yml up -d
+
+services:
+  # Omniscience Pro Application only
+  app:
+    build: .
+    container_name: omniscience-app
+    ports:
+      - "8501:8501"
+    environment:
+      # Connect to Ollama running on host machine
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./db_omniscience:/app/db_omniscience
+      - ./chats:/app/chats
+      - ./uploads:/app/uploads
+    restart: unless-stopped

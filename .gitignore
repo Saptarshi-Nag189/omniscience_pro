@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environments
+.env
+.env.local
+.env.*.local
+venv/
+env/
+ENV/
+
+# Local data - NEVER commit these
+db_omniscience/
+chats/
+uploads/
+*.db
+*.sqlite
+*.sqlite3
+chat_history.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Secrets - CRITICAL: Never commit these
+*.pem
+*.key
+*secret*
+*password*
+*credential*
+*token*
+*api_key*
+.secrets/
+config/secrets.yaml
+config/credentials.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Jupyter
+.ipynb_checkpoints/
