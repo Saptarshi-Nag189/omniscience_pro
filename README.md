@@ -48,7 +48,7 @@ brew install ollama
 
 **Windows:**
 
-Download from: <https://ollama.com/download>
+Download from: <https://ollama.com/download/windows>
 
 ### 2. Download LLM Models
 
