@@ -60,6 +60,13 @@ Examples of IRRELEVANCE:
 - "Formula 1 racing" vs "F1-score (ML metric)" → unrelated, treat as irrelevant
 - Context is code, question is conceptual or historical with no linkage
 
+CONVERSATION HISTORY RULE:
+- Conversation history is CONTEXTUAL ONLY
+- It may clarify pronouns, references, or follow-up intent
+- It must NOT be treated as a factual source
+- If conversation history conflicts with local context, academic results, or web results:
+  - IGNORE the conversation history
+
 STEP 2 — SOURCE SELECTION
 - If LOCAL CONTEXT is RELEVANT:
   - Base the answer primarily on LOCAL CONTEXT
@@ -123,6 +130,7 @@ Generate a SINGLE academic search query (5–7 keywords or short phrases) that c
 RULES:
 - Use terms commonly found in academic paper titles and abstracts
 - Prefer specific technical language over generic phrasing
+- Avoid dataset names, variable names, or project-specific identifiers unless academically standard
 - Do NOT include explanations, punctuation, or quotes
 - Do NOT exceed 200 characters
 - Output ONE LINE ONLY
@@ -159,6 +167,7 @@ STRICT RULES (NON-NEGOTIABLE):
   INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, ATTACH, PRAGMA, REPLACE, TRIGGER
 - No subqueries that modify state
 - No multiple statements
+- Do NOT use UNION unless explicitly required by the question
 - Keep the query as simple and readable as possible
 
 OUTPUT REQUIREMENTS:
@@ -198,16 +207,21 @@ USER QUESTION:
 {prompt}
 
 SOURCE HANDLING RULES:
-1. Use CONVERSATION HISTORY for context on follow-up questions
-2. Academic research results are authoritative
+1. Academic research results are authoritative
    - Prefer them when answering
    - Do NOT invent citations or papers
-3. Web search results are noisy
+2. Web search results are noisy
    - Use ONLY results that directly answer the question
    - Ignore tangential or low-quality sources
-4. If none of the sources sufficiently answer the question:
+3. If none of the sources sufficiently answer the question:
    - Say so explicitly
    - Do NOT speculate or fill gaps
+4. Conversation history is CONTEXTUAL ONLY
+   - Use it to understand follow-up intent
+   - It must NOT override factual sources
+5. Do NOT merge conclusions from unrelated sources
+   - If sources disagree, state the disagreement
+   - Do NOT average, guess, or reconcile without evidence
 
 RESPONSE RULES:
 - Clearly separate conclusions from evidence
@@ -222,5 +236,6 @@ FINAL ANSWER:
 ## Status
 
 All 4 prompts applied: ✅  
-Conversation history added: ✅  
+Conversation history governance: ✅  
+Final hardening patches: ✅  
 Last updated: 2025-12-26
