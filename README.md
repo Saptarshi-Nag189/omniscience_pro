@@ -16,6 +16,20 @@ A local RAG (Retrieval-Augmented Generation) system with web search, academic re
 - 🗃️ **SQL Mode**: Query SQLite databases with natural language
 - 🔒 **Security Hardened**: Input validation, path traversal protection, SQL injection prevention
 
+### Supported Models
+
+The following models are supported out-of-the-box *(requires download via Ollama)*:
+
+| Model | Type | Size | Use Case |
+| ----- | ---- | ---- | -------- |
+| `qwen3:4b` | Chat | 4B | Recommended general purpose |
+| `qwen2.5-coder:7b` | Chat | 7B | Code-focused |
+| `qwen2.5-coder:1.5b` | Chat | 1.5B | Lightweight, fast |
+| `llama3.2:3b` | Chat | 3B | General purpose |
+| `mistral:7b` | Chat | 7B | Alternative general |
+| `llava:7b` | Vision | 7B | Image analysis |
+| `llama3.2-vision` | Vision | 11B | Advanced image analysis |
+
 ## Prerequisites
 
 ### 1. Install Ollama
