@@ -6,7 +6,7 @@ All prompts hardened for production use. Updated: 2025-12-26
 
 ## 1. Unified RAG + Web + Academic Prompt (PRIMARY)
 
-**Location:** `omniscience_pro_v2.py` line ~1617
+**Location:** `omniscience_pro.py` line ~1617
 
 **NEW:** Now includes conversation history for follow-up questions.
 
@@ -100,7 +100,7 @@ FINAL ANSWER:
 
 ## 2. Academic Keyword Extraction Prompt
 
-**Location:** `omniscience_pro_v2.py` line ~937
+**Location:** `omniscience_pro.py` line ~937
 
 ```text
 You are extracting an academic search query.
@@ -138,7 +138,7 @@ OUTPUT (single line only):
 
 ## 3. SQL Query Generation Prompt
 
-**Location:** `omniscience_pro_v2.py` line ~1158
+**Location:** `omniscience_pro.py` line ~1158
 
 ```text
 You are a SQL query generator operating under strict safety constraints.
@@ -174,7 +174,7 @@ SQL QUERY:
 
 ## 4. Augmented Search Prompt (No RAG Available)
 
-**Location:** `omniscience_pro_v2.py` line ~1758
+**Location:** `omniscience_pro.py` line ~1758
 
 **NEW:** Now includes conversation history.
 
