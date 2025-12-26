@@ -34,16 +34,21 @@ The following models are supported out-of-the-box *(requires download via Ollama
 
 ### 1. Install Ollama
 
+**Linux:**
+
 ```bash
-# Linux
 curl -fsSL https://ollama.com/install.sh | sh
-
-# macOS
-brew install ollama
-
-# Windows
-# Download from https://ollama.com/download
 ```
+
+**macOS:**
+
+```bash
+brew install ollama
+```
+
+**Windows:**
+
+Download from: <https://ollama.com/download>
 
 ### 2. Download LLM Models
 
