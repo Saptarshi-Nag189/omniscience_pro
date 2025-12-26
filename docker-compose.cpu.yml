@@ -49,6 +49,7 @@ services:
       - ./db_omniscience:/app/db_omniscience
       - ./chats:/app/chats
       - ./uploads:/app/uploads
+      - /home/sapta/CDAC_Projects:/app/projects:ro
     depends_on:
       ollama:
         condition: service_healthy

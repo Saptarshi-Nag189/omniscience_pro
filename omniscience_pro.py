@@ -635,7 +635,7 @@ def load_llm(model_name: str):
         llm = Ollama(
             model=model_name,
             temperature=0.2,
-            base_url="http://127.0.0.1:11434"
+            base_url=OLLAMA_BASE_URL
         )
         llm.invoke("test")
         return llm, None
@@ -653,7 +653,7 @@ def get_llm_for_chain(model_name: str, callback_handler=None):
         llm = Ollama(
             model=model_name,
             temperature=0.2,
-            base_url="http://127.0.0.1:11434",
+            base_url=OLLAMA_BASE_URL,
             callbacks=callbacks
         )
         return llm
@@ -676,7 +676,7 @@ def process_vision_request(image_file, prompt, model_name="llava"):
     }
     
     try:
-        response = requests.post("http://127.0.0.1:11434/api/generate", json=payload)
+        response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
         if response.status_code == 200:
             return response.json().get("response", "No response from vision model.")
         else:
@@ -796,15 +796,14 @@ def scan_directory(root_path: str) -> List[Document]:
         logger.warning(f"Path does not exist: {root_path}")
         return []
     
-    # Prevent scanning sensitive directories
+    # Prevent scanning sensitive system directories (but allow user home directories)
     root_resolved = root.resolve()
-    sensitive_paths = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/home']
+    sensitive_paths = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/boot', '/sys', '/proc']
     for sensitive in sensitive_paths:
-        if str(root_resolved).startswith(sensitive) and str(root_resolved) != os.getcwd():
-            if not str(root_resolved).startswith(os.getcwd()):
-                logger.warning(f"Attempted to scan sensitive path: {root_resolved}")
-                st.warning("Cannot scan system directories for security reasons")
-                return []
+        if str(root_resolved).startswith(sensitive):
+            logger.warning(f"Attempted to scan sensitive path: {root_resolved}")
+            st.warning("Cannot scan system directories for security reasons")
+            return []
 
     valid_files = []
     # Use followlinks=False to prevent symlink escape attacks
@@ -934,36 +933,24 @@ def extract_academic_query(user_prompt: str, rag_context: str, llm) -> str:
     Instead of searching for the user's exact prompt, this extracts the underlying
     research topic from the code/document context.
     """
-    extraction_prompt = f"""You are extracting an academic search query.
-
-Your goal is to generate a concise, high-signal query suitable for academic search engines
-(Semantic Scholar, arXiv, OpenAlex).
+    extraction_prompt = f"""Extract an academic search query.
 
 USER QUESTION:
 {user_prompt}
 
-CODE / DOCUMENT CONTEXT (PARTIAL):
+CONTEXT:
 {rag_context[:3000]}
 
 TASK:
-Generate a SINGLE academic search query (5–7 keywords or short phrases) that captures:
-- The application domain
-- The technical methodology
-- The core research problem
+Write ONE short search query (5–7 keywords) for academic papers.
 
 RULES:
-- Use terms commonly found in academic paper titles and abstracts
-- Prefer specific technical language over generic phrasing
-- Avoid dataset names, variable names, or project-specific identifiers unless academically standard
-- Do NOT include explanations, punctuation, or quotes
-- Do NOT exceed 200 characters
-- Output ONE LINE ONLY
+- Use technical terms
+- No explanations
+- No punctuation
+- Max 200 characters
 
-EXAMPLES:
-"wifi intrusion detection machine learning management frame analysis"
-"iot anomaly detection deep learning network traffic"
-
-OUTPUT (single line only):"""
+OUTPUT:"""
 
     try:
         result = llm.invoke(extraction_prompt)
@@ -1156,34 +1143,21 @@ def query_sqlite_db(db_path, query, llm):
         tables = cursor.fetchall()
         schema_str = str(tables)
         
-        prompt = f"""You are a SQL query generator operating under strict safety constraints.
+        prompt = f"""Generate a SQLite SELECT query.
 
-DATABASE SCHEMA:
+SCHEMA:
 {schema_str}
 
-USER QUESTION:
+QUESTION:
 {query}
 
-TASK:
-Generate a SINGLE SQLite SELECT query that answers the user's question.
+RULES:
+- SELECT only
+- No INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, ATTACH, PRAGMA
+- Single statement
+- Simple query
 
-STRICT RULES (NON-NEGOTIABLE):
-- ONLY SELECT statements are allowed
-- NO data modification of any kind
-- Forbidden keywords include (but are not limited to):
-  INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, ATTACH, PRAGMA, REPLACE, TRIGGER
-- No subqueries that modify state
-- No multiple statements
-- Do NOT use UNION unless explicitly required by the question
-- Keep the query as simple and readable as possible
-
-OUTPUT REQUIREMENTS:
-- Return ONLY the SQL query
-- No explanations
-- No markdown
-- No comments
-
-SQL QUERY:"""
+Return ONLY the SQL query."""
         
         sql_query = llm.invoke(prompt).strip().replace("```sql", "").replace("```", "").strip()
         
@@ -1429,12 +1403,16 @@ def main():
             c1, c2 = st.columns(2)
             with c1: 
                 if st.button("SCAN"):
-                    st.session_state.vectorstore = initialize_vectorstore(load_embeddings(), False)
-                    docs = scan_directory(root_path)
-                    ingest_documents(st.session_state.vectorstore, docs)
+                    with st.spinner("Scanning folder..."):
+                        st.session_state.vectorstore = initialize_vectorstore(load_embeddings(), False)
+                        docs = scan_directory(root_path)
+                        ingest_documents(st.session_state.vectorstore, docs)
+                    st.success(f"✅ Scanned {len(docs)} documents from {root_path}")
             with c2:
                 if st.button("PURGE"):
                     initialize_vectorstore(load_embeddings(), True)
+                    st.session_state.vectorstore = None
+                    st.info("🗑️ Vector database purged")
             
             uploaded_files = st.file_uploader("Upload Files", accept_multiple_files=True)
             
@@ -1630,99 +1608,58 @@ def main():
                                         history_parts.append(f"{role}: {content}")
                                     conversation_history = "\n\n".join(history_parts)
                                 
-                                unified_prompt = f"""You are Omniscience, a retrieval-augmented AI assistant.
+                                unified_prompt = f"""You are Omniscience, an AI assistant.
 
-You are provided with FOUR optional information sources:
-1. CONVERSATION HISTORY (previous messages in this chat)
-2. LOCAL CODE / DOCUMENT CONTEXT (RAG)
-3. WEB SEARCH RESULTS
-4. ACADEMIC RESEARCH RESULTS
-
-Your task is to answer the user's question using ONLY relevant sources.
+You may be given:
+- Conversation history
+- Local code or documents
+- Web search results
+- Academic search results
 
 ==============================
 CONVERSATION HISTORY
 ==============================
 {conversation_history if conversation_history else "(No previous messages)"}
-============ END CONVERSATION HISTORY ============
-
-Your task is to answer the user's question using ONLY relevant sources.
 
 ==============================
-LOCAL CODE / DOCUMENT CONTEXT
+LOCAL CONTEXT
 ==============================
 {rag_context}
-============ END LOCAL CONTEXT ============
 
 """
                                 if web_results:
                                     logger.info(f"Web results included in prompt: {len(web_results)} chars")
                                     unified_prompt += f"""==============================
-WEB SEARCH RESULTS
+WEB RESULTS
 ==============================
 {web_results}
-============ END WEB RESULTS ============
 
 """
                                 if academic_results:
                                     unified_prompt += f"""==============================
-ACADEMIC RESEARCH RESULTS
+ACADEMIC RESULTS
 ==============================
 {academic_results}
-============ END ACADEMIC RESULTS ============
 
 """
                                 unified_prompt += f"""USER QUESTION:
 {prompt}
 
---------------------------------
-DECISION & EXECUTION RULES
---------------------------------
+INSTRUCTIONS:
+- First decide: Is the LOCAL CONTEXT useful for answering the question?
+- If YES:
+  - Answer using the LOCAL CONTEXT
+  - Quote or refer to it when helpful
+- If NO:
+  - Ignore LOCAL CONTEXT completely
+  - Answer using WEB or ACADEMIC results only
 
-STEP 1 — RELEVANCE CHECK (MANDATORY)
-Determine whether the LOCAL CODE / DOCUMENT CONTEXT is semantically relevant to the user's question.
+RULES:
+- Do not mix unrelated sources
+- Do not invent facts, code, or citations
+- If none of the sources help, say: "The provided sources do not answer this."
 
-Examples of IRRELEVANCE:
-- User asks general knowledge, current events, sports, news → code context irrelevant
-- "Formula 1 racing" vs "F1-score (ML metric)" → unrelated, treat as irrelevant
-- Context is code, question is conceptual or historical with no linkage
-
-CONVERSATION HISTORY RULE:
-- Conversation history is CONTEXTUAL ONLY
-- It may clarify pronouns, references, or follow-up intent
-- It must NOT be treated as a factual source
-- If conversation history conflicts with local context, academic results, or web results:
-  - IGNORE the conversation history
-
-STEP 2 — SOURCE SELECTION
-- If LOCAL CONTEXT is RELEVANT:
-  - Base the answer primarily on LOCAL CONTEXT
-  - Quote or reference specific code or documentation when useful
-  - Use web or academic results ONLY to supplement or clarify
-
-- If LOCAL CONTEXT is IRRELEVANT:
-  - DO NOT use local context
-  - Answer using WEB SEARCH and/or ACADEMIC RESULTS only
-  - Explicitly signal this with: "Based on external search results:"
-
-STEP 3 — SOURCE PRIORITY
-When multiple sources are used:
-1. Academic results (highest authority)
-2. Local code/document context
-3. Web search results (lowest authority, be skeptical)
-
-STEP 4 — STRICT CONSTRAINTS
-- Do NOT hallucinate code, APIs, papers, citations, or facts
-- If the available sources do not answer the question, say so clearly
-- Do NOT blend unrelated contexts
-- Do NOT assume intent beyond the question
-
-STEP 5 — RESPONSE QUALITY
-- Use clear structure (headers, bullets, code blocks where appropriate)
-- Be concise but technically precise
-- Avoid speculation
-
-FINAL ANSWER:"""
+ANSWER:"""
                                 
                                 response_content = llm.invoke(unified_prompt)
                                 thinking_placeholder.empty()  # Clear AFTER LLM completes
@@ -1775,41 +1712,28 @@ FINAL ANSWER:"""
 IMPORTANT: Critically evaluate web results - ignore irrelevant ones (hotels, random websites, etc.).""")
                                 
                                 if context_parts:
-                                    augmented_prompt = f"""You are answering a question using available sources.
+                                    augmented_prompt = f"""Answer the question using the sources below.
 
-AVAILABLE SOURCES:
-{chr(10).join(context_parts)}
+CONVERSATION HISTORY:
+{chr(10).join(history_parts) if history_parts else "(None)"}
 
-USER QUESTION:
+ACADEMIC RESULTS:
+{academic_results if academic_results else "(None)"}
+
+WEB RESULTS:
+{web_results if web_results else "(None)"}
+
+QUESTION:
 {prompt}
 
-SOURCE HANDLING RULES:
-1. Academic research results are authoritative
-   - Prefer them when answering
-   - Do NOT invent citations or papers
+RULES:
+- Use conversation history only to understand follow-up questions
+- Prefer academic results when available
+- Ignore irrelevant web results
+- Do not invent information
+- If the sources do not answer the question, say so clearly
 
-2. Web search results are noisy
-   - Use ONLY results that directly answer the question
-   - Ignore tangential or low-quality sources
-
-3. If none of the sources sufficiently answer the question:
-   - Say so explicitly
-   - Do NOT speculate or fill gaps
-
-4. Conversation history is CONTEXTUAL ONLY
-   - Use it to understand follow-up intent
-   - It must NOT override factual sources
-
-5. Do NOT merge conclusions from unrelated sources
-   - If sources disagree, state the disagreement
-   - Do NOT average, guess, or reconcile without evidence
-
-RESPONSE RULES:
-- Clearly separate conclusions from evidence
-- Cite academic results when used
-- Be factual, concise, and skeptical
-
-FINAL ANSWER:"""
+ANSWER:"""
                                     response_content = llm.invoke(augmented_prompt)
                                 else:
                                     response_content = llm.invoke(prompt)
