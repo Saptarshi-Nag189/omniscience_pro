@@ -63,7 +63,6 @@ temp/
 .ipynb_checkpoints/
 
 # PDF and LaTeX
-*.tex
 *.pdf
 *.aux
 *.log
@@ -79,3 +78,6 @@ temp/
 *.nav
 *.snm
 *.vrb
+
+# LaTeX report (generated, don't track)
+Omniscience_Pro_Technical_Report.tex
