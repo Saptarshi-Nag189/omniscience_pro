@@ -61,3 +61,21 @@ temp/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# PDF and LaTeX
+*.tex
+*.pdf
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
