@@ -79,5 +79,5 @@ temp/
 *.snm
 *.vrb
 
-# LaTeX report (generated, don't track)
-Omniscience_Pro_Technical_Report.tex
+# Documentation folder (generated reports, don't track)
+docs/
