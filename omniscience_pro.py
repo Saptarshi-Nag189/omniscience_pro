@@ -36,7 +36,7 @@ import fcntl
 from datetime import datetime
 import streamlit as st
 from pathlib import Path
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -225,6 +225,12 @@ def check_rate_limit(user_id: str = "default") -> bool:
         return False
     
     _rate_limit_cache[user_id].append(current_time)
+    
+    # Prune stale user entries (users with no recent activity)
+    stale_users = [uid for uid, times in _rate_limit_cache.items() if not times]
+    for uid in stale_users:
+        del _rate_limit_cache[uid]
+    
     return True
 
 
@@ -708,9 +714,9 @@ def process_vision_request(image_file, prompt, model_name="llava"):
         if response.status_code == 200:
             return response.json().get("response", "No response from vision model.")
         else:
-            return f"Vision Error: {response.text}"
+            return f"Vision Error: Unable to process image."
     except Exception as e:
-        return f"Connection Error: {str(e)}"
+        return f"Connection Error: {sanitize_error_message(e)}"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1085,11 +1091,12 @@ def run_academic_search(query, max_results=100, rag_context=None, llm=None):
                 if work.get('abstract_inverted_index'):
                     # OpenAlex stores abstract as inverted index - reconstruct
                     inv_idx = work['abstract_inverted_index']
-                    words = [''] * (max(max(positions) for positions in inv_idx.values()) + 1)
-                    for word, positions in inv_idx.items():
-                        for pos in positions:
-                            words[pos] = word
-                    abstract = ' '.join(words)[:300] + '...'
+                    if inv_idx:  # Guard against empty dict
+                        words = [''] * (max(max(positions) for positions in inv_idx.values()) + 1)
+                        for word, positions in inv_idx.items():
+                            for pos in positions:
+                                words[pos] = word
+                        abstract = ' '.join(words)[:300] + '...'
                 
                 all_papers.append({
                     'source': 'OpenAlex',
@@ -1162,16 +1169,16 @@ def query_sqlite_db(db_path, query, llm):
     try:
         # Open database in READ-ONLY mode to prevent modification
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=QUERY_TIMEOUT_SECONDS)
-        
-        # Disable dangerous features at the connection level
-        conn.execute("PRAGMA query_only = ON")  # Extra read-only protection
-        
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = cursor.fetchall()
-        schema_str = str(tables)
-        
-        prompt = f"""Generate a SQLite SELECT query.
+        try:
+            # Disable dangerous features at the connection level
+            conn.execute("PRAGMA query_only = ON")  # Extra read-only protection
+            
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+            schema_str = str(tables)
+            
+            prompt = f"""Generate a SQLite SELECT query.
 
 SCHEMA:
 {schema_str}
@@ -1186,53 +1193,56 @@ RULES:
 - Simple query
 
 Return ONLY the SQL query."""
-        
-        sql_query = llm.invoke(prompt).strip().replace("```sql", "").replace("```", "").strip()
-        
-        # SECURITY: Comprehensive blocking of dangerous SQL patterns
-        sql_upper = sql_query.upper().strip()
-        
-        # Must start with SELECT
-        if not sql_upper.startswith('SELECT'):
-            logger.warning(f"Blocked non-SELECT SQL query: {sql_query[:100]}")
-            return "Only SELECT queries are allowed for security reasons."
-        
-        # Block all dangerous keywords - including bypass attempts
-        dangerous_keywords = [
-            'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
-            'TRUNCATE', 'EXEC', 'EXECUTE', 'GRANT', 'REVOKE',
-            'ATTACH', 'DETACH', 'PRAGMA', 'LOAD_EXTENSION',  # SQLite-specific dangers
-            'INTO OUTFILE', 'INTO DUMPFILE',  # MySQL-style bypass attempts
-            'VACUUM', 'REINDEX', 'ANALYZE',  # Can be resource-intensive
-            ';--', '/*', '*/',  # Comment injection attempts
-        ]
-        
-        for keyword in dangerous_keywords:
-            if keyword in sql_upper:
-                logger.warning(f"Blocked dangerous SQL keyword '{keyword}': {sql_query[:100]}")
-                return f"Query contains prohibited keyword: {keyword}"
-        
-        # Block multiple statements (prevent command chaining)
-        if sql_query.count(';') > 1:
-            logger.warning(f"Blocked multi-statement SQL: {sql_query[:100]}")
-            return "Multiple SQL statements are not allowed."
-        
-        # Execute with row limit
-        cursor.execute(sql_query)
-        results = cursor.fetchmany(MAX_ROWS)
-        
-        # Check if more rows were available
-        has_more = cursor.fetchone() is not None
-        
-        conn.close()
-        
-        result_text = f"**SQL:** `{sql_query}`\n\n**Results ({len(results)} rows"
-        if has_more:
-            result_text += f", limited to {MAX_ROWS}"
-        result_text += f"):**\n{str(results)}"
-        
-        logger.info(f"Executed SQL query: {sql_query[:100]}")
-        return result_text
+            
+            sql_query = llm.invoke(prompt).strip().replace("```sql", "").replace("```", "").strip()
+            
+            # SECURITY: Comprehensive blocking of dangerous SQL patterns
+            sql_upper = sql_query.upper().strip()
+            
+            # Must start with SELECT
+            if not sql_upper.startswith('SELECT'):
+                logger.warning(f"Blocked non-SELECT SQL query: {sql_query[:100]}")
+                return "Only SELECT queries are allowed for security reasons."
+            
+            # Block all dangerous keywords - including bypass attempts
+            dangerous_keywords = [
+                'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
+                'TRUNCATE', 'EXEC', 'EXECUTE', 'GRANT', 'REVOKE',
+                'ATTACH', 'DETACH', 'PRAGMA', 'LOAD_EXTENSION',  # SQLite-specific dangers
+                'INTO OUTFILE', 'INTO DUMPFILE',  # MySQL-style bypass attempts
+                'VACUUM', 'REINDEX', 'ANALYZE',  # Can be resource-intensive
+                ';--', '/*', '*/',  # Comment injection attempts
+                'UNION',  # Prevent data extraction via UNION SELECT
+                'OR', 'AND', # Prevent common logical injection points
+                '--', '#', # Prevent comment injection
+            ]
+            
+            for keyword in dangerous_keywords:
+                if keyword in sql_upper:
+                    logger.warning(f"Blocked dangerous SQL keyword '{keyword}': {sql_query[:100]}")
+                    return f"Query contains prohibited keyword: {keyword}"
+            
+            # Block multiple statements (prevent command chaining)
+            if sql_query.count(';') > 1:
+                logger.warning(f"Blocked multi-statement SQL: {sql_query[:100]}")
+                return "Multiple SQL statements are not allowed."
+            
+            # Execute with row limit
+            cursor.execute(sql_query)
+            results = cursor.fetchmany(MAX_ROWS)
+            
+            # Check if more rows were available
+            has_more = cursor.fetchone() is not None
+            
+            result_text = f"**SQL:** `{sql_query}`\n\n**Results ({len(results)} rows"
+            if has_more:
+                result_text += f", limited to {MAX_ROWS}"
+            result_text += f"):**\n{str(results)}"
+            
+            logger.info(f"Executed SQL query: {sql_query[:100]}")
+            return result_text
+        finally:
+            conn.close()
         
     except sqlite3.OperationalError as e:
         if "locked" in str(e).lower() or "timeout" in str(e).lower():
@@ -1727,6 +1737,7 @@ ANSWER:"""
                                 context_parts = []
                                 
                                 # Build conversation history (last 10 messages)
+                                history_parts = []  # Initialize before use
                                 history_messages = st.session_state.messages[-10:] if len(st.session_state.messages) > 10 else st.session_state.messages
                                 if history_messages:
                                     history_parts = []
