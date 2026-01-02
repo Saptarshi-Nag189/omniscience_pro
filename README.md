@@ -42,9 +42,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 
 **macOS:**
 
-```bash
-brew install ollama
-```
+Download from: <https://ollama.com/download/mac>
 
 **Windows:**
 
