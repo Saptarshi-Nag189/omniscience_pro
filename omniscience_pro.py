@@ -470,6 +470,33 @@ def get_session_files():
     return session_list
 
 
+# Last session persistence file
+LAST_SESSION_FILE = os.path.join(CHATS_DIR, '.last_session')
+
+def save_last_session(session_id: str):
+    """Persist the last used session ID to disk."""
+    try:
+        sanitize_session_id(session_id)
+        with open(LAST_SESSION_FILE, 'w') as f:
+            f.write(session_id)
+    except Exception as e:
+        logger.debug(f"Could not save last session: {e}")
+
+def get_last_session() -> Optional[str]:
+    """Get the last used session ID from disk."""
+    try:
+        if os.path.exists(LAST_SESSION_FILE):
+            with open(LAST_SESSION_FILE, 'r') as f:
+                session_id = f.read().strip()
+                # Validate it's a valid session ID and the session file exists
+                sanitize_session_id(session_id)
+                if os.path.exists(os.path.join(CHATS_DIR, f"{session_id}.json")):
+                    return session_id
+    except Exception as e:
+        logger.debug(f"Could not load last session: {e}")
+    return None
+
+
 def load_session(session_id):
     """Load a session's messages from disk with validation."""
     try:
@@ -564,6 +591,7 @@ def create_new_session():
     st.session_state.current_session = session_id
     st.session_state.messages = []
     save_session(session_id, [])
+    save_last_session(session_id)
     return session_id
 
 
@@ -1277,11 +1305,16 @@ def main():
     st.markdown("##### Local RAG System // Offline Mode")
     st.markdown("---")
     
-    # Session Management
+    # Session Management - restore last used session
     if 'current_session' not in st.session_state:
         sessions = get_session_files()
         if sessions:
-            st.session_state.current_session = sessions[0]["id"]
+            # Try to restore the last used session
+            last_session = get_last_session()
+            if last_session and any(s["id"] == last_session for s in sessions):
+                st.session_state.current_session = last_session
+            else:
+                st.session_state.current_session = sessions[0]["id"]
             st.session_state.messages = load_session(st.session_state.current_session)
         else:
             create_new_session()
@@ -1371,6 +1404,7 @@ def main():
             if selected_id != st.session_state.current_session:
                 st.session_state.current_session = selected_id
                 st.session_state.messages = load_session(selected_id)
+                save_last_session(selected_id)
                 st.rerun()
                 
             if st.button("DELETE CHAT", type="primary"):
@@ -1514,6 +1548,7 @@ def main():
             image_bytes = img_file.getvalue()
             st.session_state.messages.append({"role": "user", "content": prompt, "image": image_bytes})
             save_session(st.session_state.current_session, st.session_state.messages)
+            save_last_session(st.session_state.current_session)
             st.rerun()
 
         # Processing logic for vision
