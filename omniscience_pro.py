@@ -653,6 +653,17 @@ class StreamHandler(BaseCallbackHandler):
 
 
 @st.cache_resource
+def _get_startup_marker():
+    """
+    Returns a unique startup ID that persists within a Streamlit session
+    but changes on fresh Streamlit starts. Used to detect if we should
+    create a new chat (fresh start) or restore last chat (browser refresh).
+    """
+    import time
+    return {"startup_time": time.time(), "session_created": False}
+
+
+@st.cache_resource
 def load_embeddings():
     """Load and cache the embedding model."""
     return HuggingFaceEmbeddings(
@@ -1315,19 +1326,27 @@ def main():
     st.markdown("##### Local RAG System // Offline Mode")
     st.markdown("---")
     
-    # Session Management - restore last used session
+    # Session Management - create new chat on fresh start, restore on refresh
+    startup_marker = _get_startup_marker()
+    
     if 'current_session' not in st.session_state:
-        sessions = get_session_files()
-        if sessions:
-            # Try to restore the last used session
-            last_session = get_last_session()
-            if last_session and any(s["id"] == last_session for s in sessions):
-                st.session_state.current_session = last_session
-            else:
-                st.session_state.current_session = sessions[0]["id"]
-            st.session_state.messages = load_session(st.session_state.current_session)
-        else:
+        # Check if this is a fresh Streamlit start or just a browser refresh
+        if not startup_marker["session_created"]:
+            # Fresh Streamlit start - create a new chat session
+            startup_marker["session_created"] = True
             create_new_session()
+        else:
+            # Browser refresh during running session - try to restore last session
+            sessions = get_session_files()
+            if sessions:
+                last_session = get_last_session()
+                if last_session and any(s["id"] == last_session for s in sessions):
+                    st.session_state.current_session = last_session
+                else:
+                    st.session_state.current_session = sessions[0]["id"]
+                st.session_state.messages = load_session(st.session_state.current_session)
+            else:
+                create_new_session()
     
     if 'vectorstore' not in st.session_state:
         st.session_state.vectorstore = None
