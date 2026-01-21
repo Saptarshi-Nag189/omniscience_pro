@@ -591,8 +591,27 @@ def save_session(session_id, messages):
         logger.error(f"Error saving session {session_id}: {sanitize_error_message(e)}")
 
 
+def find_empty_session():
+    """Find an existing empty session that can be reused."""
+    sessions = get_session_files()
+    for session in sessions:
+        messages = load_session(session["id"])
+        if len(messages) == 0:
+            return session["id"]
+    return None
+
+
 def create_new_session():
-    """Create a new chat session."""
+    """Create a new chat session, or reuse an existing empty one."""
+    # Check if there's an existing empty session to reuse
+    empty_session = find_empty_session()
+    if empty_session:
+        st.session_state.current_session = empty_session
+        st.session_state.messages = []
+        save_last_session(empty_session)
+        return empty_session
+    
+    # Create a new session only if no empty session exists
     session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:4]}"
     st.session_state.current_session = session_id
     st.session_state.messages = []
@@ -1808,8 +1827,13 @@ ANSWER:"""
                         st.session_state.messages.append({"role": "assistant", "content": response_content, "sources": sources})
                         save_session(st.session_state.current_session, st.session_state.messages)
                     except Exception as e:
+                        thinking_placeholder.empty()  # Stop thinking indicator on error
                         logger.error(f"Error processing request: {e}")
                         st.error(f"Error: {sanitize_error_message(e)}")
+                else:
+                    # LLM failed to load
+                    thinking_placeholder.empty()
+                    st.error("Failed to load the model. Please check if Ollama is running and the model is installed.")
 
 
 if __name__ == "__main__":
