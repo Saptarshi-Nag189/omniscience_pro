@@ -965,6 +965,72 @@ def get_all_filenames(vectorstore):
         return []
 
 
+def parse_file_mentions(query: str) -> tuple[list[str], str]:
+    """
+    Parse @filename mentions from a query.
+    Returns (list of mentioned filenames, query with mentions removed).
+    
+    Supports:
+    - @filename.py
+    - @path/to/file.py
+    - @"filename with spaces.py"
+    """
+    import re
+    
+    # Pattern for @mentions: @filename or @"filename with spaces"
+    pattern = r'@"([^"]+)"|@(\S+)'
+    
+    mentions = []
+    for match in re.finditer(pattern, query):
+        # Group 1 is quoted, group 2 is unquoted
+        filename = match.group(1) or match.group(2)
+        mentions.append(filename)
+    
+    # Remove mentions from query for semantic search
+    clean_query = re.sub(pattern, '', query).strip()
+    clean_query = ' '.join(clean_query.split())  # Normalize whitespace
+    
+    return mentions, clean_query if clean_query else query
+
+
+def fuzzy_match_filenames(mentions: list[str], available_files: list[str]) -> list[str]:
+    """
+    Fuzzy match mentioned filenames against available files in vectorstore.
+    Returns list of matched full paths.
+    """
+    matched = []
+    
+    for mention in mentions:
+        mention_lower = mention.lower()
+        
+        for filepath in available_files:
+            # Extract just the filename from the full path
+            filename = os.path.basename(filepath).lower()
+            
+            # Exact match on filename
+            if filename == mention_lower:
+                matched.append(filepath)
+                continue
+            
+            # Partial match (mention is substring of filename or vice versa)
+            if mention_lower in filename or filename in mention_lower:
+                matched.append(filepath)
+                continue
+            
+            # Match without extension
+            name_no_ext = os.path.splitext(filename)[0]
+            mention_no_ext = os.path.splitext(mention_lower)[0]
+            if name_no_ext == mention_no_ext:
+                matched.append(filepath)
+                continue
+            
+            # Check if mention matches end of path (for partial paths like "folder/file.py")
+            if filepath.lower().endswith(mention_lower):
+                matched.append(filepath)
+    
+    return list(set(matched))  # Remove duplicates
+
+
 # ═══════════════════════════════════════════════════════════════════
 # TOOLS: Web Search, SQL, Code Execution
 # ═══════════════════════════════════════════════════════════════════
@@ -1673,9 +1739,35 @@ def main():
                             
                             # STEP 2: Get RAG context if vectorstore exists
                             if st.session_state.vectorstore:
-                                # Get RAG retrieval results (but don't run full QA chain yet)
-                                retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": 8})
-                                retrieved_docs = retriever.invoke(prompt)
+                                # Parse @file mentions from query
+                                file_mentions, clean_query = parse_file_mentions(prompt)
+                                
+                                # Get RAG retrieval results
+                                retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": 16 if file_mentions else 8})
+                                retrieved_docs = retriever.invoke(clean_query if clean_query else prompt)
+                                
+                                # Filter to only mentioned files if @mentions were used
+                                if file_mentions:
+                                    available_files = get_all_filenames(st.session_state.vectorstore)
+                                    matched_files = fuzzy_match_filenames(file_mentions, available_files)
+                                    
+                                    if matched_files:
+                                        # Filter retrieved docs to only those from mentioned files
+                                        filtered_docs = [
+                                            doc for doc in retrieved_docs
+                                            if doc.metadata.get('source', '') in matched_files or
+                                               doc.metadata.get('filename', '') in matched_files
+                                        ]
+                                        
+                                        # If we have filtered results, use them; otherwise fall back to all
+                                        if filtered_docs:
+                                            retrieved_docs = filtered_docs
+                                            st.info(f"📎 Focused on: {', '.join([os.path.basename(f) for f in matched_files[:5]])}")
+                                        else:
+                                            st.warning(f"⚠️ No content found in mentioned files. Showing general results.")
+                                    else:
+                                        st.warning(f"⚠️ Could not find files matching: {', '.join(file_mentions)}")
+                                
                                 rag_context = "\n\n".join([doc.page_content for doc in retrieved_docs])
                                 sources = list(set([doc.metadata.get('source', 'Unknown') for doc in retrieved_docs]))
                                 
