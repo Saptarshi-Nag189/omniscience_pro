@@ -663,6 +663,11 @@ class StreamHandler(BaseCallbackHandler):
         self.first_token = True
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
+        # Check if stop was requested
+        if st.session_state.get('stop_generation', False):
+            st.session_state.stop_generation = False  # Reset for next time
+            raise StopIteration("Generation stopped by user")
+        
         # Clear thinking indicator on first token
         if self.first_token and self.thinking_placeholder:
             self.thinking_placeholder.empty()
@@ -1630,9 +1635,15 @@ def main():
                 st.markdown(prompt)
             
             with st.chat_message("assistant"):
-                # Show thinking indicator
+                # Show thinking indicator and stop button
                 thinking_placeholder = st.empty()
                 thinking_placeholder.markdown(THINKING_HTML, unsafe_allow_html=True)
+                
+                # Stop button (shown during generation)
+                stop_button_placeholder = st.empty()
+                if stop_button_placeholder.button("⏹ Stop Generation", key=f"stop_{len(st.session_state.messages)}"):
+                    st.session_state.stop_generation = True
+                    stop_button_placeholder.empty()
                 
                 response_placeholder = st.empty()
                 stream_handler = StreamHandler(response_placeholder, thinking_placeholder=thinking_placeholder)
@@ -1826,13 +1837,24 @@ ANSWER:"""
 
                         st.session_state.messages.append({"role": "assistant", "content": response_content, "sources": sources})
                         save_session(st.session_state.current_session, st.session_state.messages)
+                        stop_button_placeholder.empty()  # Hide stop button after completion
+                    except StopIteration:
+                        # User stopped generation
+                        thinking_placeholder.empty()
+                        stop_button_placeholder.empty()
+                        partial_response = stream_handler.text if stream_handler.text else "(Generation stopped)"
+                        response_placeholder.markdown(partial_response + "\n\n*[Generation stopped by user]*")
+                        st.session_state.messages.append({"role": "assistant", "content": partial_response, "sources": sources})
+                        save_session(st.session_state.current_session, st.session_state.messages)
                     except Exception as e:
                         thinking_placeholder.empty()  # Stop thinking indicator on error
+                        stop_button_placeholder.empty()
                         logger.error(f"Error processing request: {e}")
                         st.error(f"Error: {sanitize_error_message(e)}")
                 else:
                     # LLM failed to load
                     thinking_placeholder.empty()
+                    stop_button_placeholder.empty()
                     st.error("Failed to load the model. Please check if Ollama is running and the model is installed.")
 
 
