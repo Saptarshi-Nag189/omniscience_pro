@@ -33,20 +33,6 @@ def load_embeddings() -> HuggingFaceEmbeddings:
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
 
-@st.cache_resource
-def load_llm(model_name: str):
-    """Load and health-check an Ollama LLM. Returns (llm, None) or (None, error_msg)."""
-    try:
-        llm = Ollama(model=model_name, temperature=0.2, base_url=OLLAMA_BASE_URL)
-        llm.invoke("test")
-        return llm, None
-    except Exception as e:
-        msg = f"Ollama Error: {e}"
-        if "404" in str(e):
-            msg = f"Model '{model_name}' not found. Run: ollama pull {model_name}"
-        return None, msg
-
-
 def get_llm_for_chain(model_name: str, callback_handler=None):
     """Instantiate an Ollama LLM for chain use, with optional streaming callbacks."""
     try:

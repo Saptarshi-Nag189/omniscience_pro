@@ -72,3 +72,5 @@ for _pkg in ["chromadb", "chromadb.config", "pypdf", "pandas", "matplotlib",
     _stub_if_missing(_pkg)
 
 sys.modules["chromadb.config"].Settings = MagicMock
+sys.modules["chromadb"].PersistentClient = MagicMock
+sys.modules["pypdf"].PdfReader = MagicMock

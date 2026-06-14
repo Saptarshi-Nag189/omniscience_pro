@@ -141,6 +141,7 @@ Environment variables (optional):
 export OLLAMA_BASE_URL="http://127.0.0.1:11434"  # Ollama server URL
 export OMNISCIENCE_DB_DIR="./db_omniscience"     # Vector DB location
 export OMNISCIENCE_CHATS_DIR="./chats"           # Chat history location
+export OMNISCIENCE_UPLOAD_DIR="./uploads"        # Uploaded files location
 ```
 
 ## Testing
