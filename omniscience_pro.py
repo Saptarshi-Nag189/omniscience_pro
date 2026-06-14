@@ -404,19 +404,27 @@ def cleanup_expired_sessions():
     for f in os.listdir(CHATS_DIR):
         if not f.endswith('.json'):
             continue
-        
+
         path = os.path.join(CHATS_DIR, f)
         try:
             mtime = datetime.fromtimestamp(os.path.getmtime(path))
             age_hours = (now - mtime).total_seconds() / 3600
-            
-            # Remove if expired
+
+            # Remove if exceeded absolute expiry
             if age_hours > SESSION_EXPIRY_HOURS:
                 os.remove(path)
                 removed += 1
                 logger.info(f"Removed expired session: {f}")
-            else:
-                session_files.append((path, mtime))
+                continue
+
+            # Remove if idle (no activity) beyond idle timeout
+            if age_hours > SESSION_IDLE_TIMEOUT_HOURS:
+                os.remove(path)
+                removed += 1
+                logger.info(f"Removed idle session: {f}")
+                continue
+
+            session_files.append((path, mtime))
         except (OSError, ValueError) as e:
             logger.warning(f"Error checking session {f}: {e}")
     
@@ -612,7 +620,7 @@ def create_new_session():
         return empty_session
     
     # Create a new session only if no empty session exists
-    session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:4]}"
+    session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
     st.session_state.current_session = session_id
     st.session_state.messages = []
     save_session(session_id, [])
@@ -1059,7 +1067,8 @@ def run_web_search(query):
         formatted_response += "---\n**Sources:**\n" + "\n".join(sources_list)
         return formatted_response
     except Exception as e:
-        return f"Search failed: {str(e)}"
+        logger.warning(f"Web search failed: {e}")
+        return ""
 
 
 def extract_academic_query(user_prompt: str, rag_context: str, llm) -> str:
@@ -1192,9 +1201,10 @@ def run_academic_search(query, max_results=100, rag_context=None, llm=None):
                 if work.get('abstract_inverted_index'):
                     # OpenAlex stores abstract as inverted index - reconstruct
                     inv_idx = work['abstract_inverted_index']
-                    if inv_idx:  # Guard against empty dict
-                        words = [''] * (max(max(positions) for positions in inv_idx.values()) + 1)
-                        for word, positions in inv_idx.items():
+                    valid_idx = {w: p for w, p in inv_idx.items() if p}
+                    if valid_idx:
+                        words = [''] * (max(max(p) for p in valid_idx.values()) + 1)
+                        for word, positions in valid_idx.items():
                             for pos in positions:
                                 words[pos] = word
                         abstract = ' '.join(words)[:300] + '...'
@@ -1314,7 +1324,6 @@ Return ONLY the SQL query."""
                 'VACUUM', 'REINDEX', 'ANALYZE',  # Can be resource-intensive
                 ';--', '/*', '*/',  # Comment injection attempts
                 'UNION',  # Prevent data extraction via UNION SELECT
-                'OR', 'AND', # Prevent common logical injection points
                 '--', '#', # Prevent comment injection
             ]
             
@@ -1717,8 +1726,12 @@ def main():
                 
                 response_content = ""
                 sources = []
-                
-                if llm:
+
+                if not check_rate_limit("llm_request"):
+                    thinking_placeholder.empty()
+                    stop_button_placeholder.empty()
+                    st.error("Rate limit exceeded. Please wait a moment before sending another message.")
+                elif llm:
                     try:
                         if mode == "Database (SQL)":
                             thinking_placeholder.empty()  # Clear thinking indicator
@@ -1878,10 +1891,9 @@ ANSWER:"""
                                 context_parts = []
                                 
                                 # Build conversation history (last 10 messages)
-                                history_parts = []  # Initialize before use
+                                history_parts = []
                                 history_messages = st.session_state.messages[-10:] if len(st.session_state.messages) > 10 else st.session_state.messages
                                 if history_messages:
-                                    history_parts = []
                                     for msg in history_messages:
                                         role = "USER" if msg["role"] == "user" else "ASSISTANT"
                                         content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
@@ -1951,4 +1963,5 @@ ANSWER:"""
 
 
 if __name__ == "__main__":
+    cleanup_expired_sessions()
     main()
