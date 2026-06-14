@@ -14,7 +14,9 @@ A local RAG (Retrieval-Augmented Generation) system with web search, academic re
 - 💾 **Session Management**: Persistent chat history with auto-titles
 - 🖼️ **Vision Mode**: Analyze images with LLaVA
 - 🗃️ **SQL Mode**: Query SQLite databases with natural language
-- 🔒 **Security Hardened**: Input validation, path traversal protection, SQL injection prevention
+- 🔒 **Security Hardened**: Input validation, path traversal protection, SQL injection prevention, SQLite-backed persistent rate limiting
+- 📋 **Real Clipboard Copy**: One-click copy of responses via browser clipboard API
+- 🧩 **Modular Architecture**: 10 focused modules for easy navigation and extension
 
 ### Supported Models
 
@@ -29,6 +31,21 @@ The following models are supported out-of-the-box *(requires download via Ollama
 | `mistral:7b` | Chat | 7B | Alternative general |
 | `llava:7b` | Vision | 7B | Image analysis |
 | `llama3.2-vision` | Vision | 11B | Advanced image analysis |
+
+## Project Structure
+
+| File | Purpose |
+| ---- | ------- |
+| `omniscience_pro.py` | Slim UI orchestrator + `main()` entry point |
+| `config.py` | All constants and environment variables |
+| `security.py` | Input sanitizers, path validation, persistent rate limiter |
+| `session.py` | Chat session load/save/cleanup with file locking |
+| `file_utils.py` | File reading, chunking, directory scanning |
+| `rag_core.py` | Embeddings, LLM loader, ChromaDB vectorstore |
+| `search.py` | Web + academic search (DuckDuckGo / Semantic Scholar / arXiv / OpenAlex) |
+| `sql_mode.py` | Natural-language → SQL with read-only SQLite enforcement |
+| `vision.py` | Image analysis via Ollama multimodal endpoint |
+| `ui_components.py` | CSS theme, streaming handler, clipboard helper |
 
 ## Prerequisites
 
@@ -124,7 +141,17 @@ Environment variables (optional):
 export OLLAMA_BASE_URL="http://127.0.0.1:11434"  # Ollama server URL
 export OMNISCIENCE_DB_DIR="./db_omniscience"     # Vector DB location
 export OMNISCIENCE_CHATS_DIR="./chats"           # Chat history location
+export OMNISCIENCE_UPLOAD_DIR="./uploads"        # Uploaded files location
 ```
+
+## Testing
+
+```bash
+# Run the test suite (pytest is already in requirements.txt)
+pytest tests/ -v
+```
+
+Covers 31 tests across three modules: security sanitizers, persistent rate limiter, session cleanup, and SQL keyword blocking.
 
 ## Deployment Options
 

@@ -103,16 +103,24 @@ In compose-based flows the app is reachable at `http://localhost:8501` and Ollam
 
 ### Tests and linting
 
-There is currently no dedicated test suite, lint configuration, or automation in this repo (no `tests/`, `pytest.ini`, `tox.ini`, or lint config files).
+The project has a pytest-based test suite under `tests/`:
 
-If you add tests or tooling:
+```bash
+# From the repo root, with the venv activated
+pytest tests/ -v
+```
 
-- Prefer reusing the existing virtualenv / Docker flows described above.
-- Document new commands in this section (e.g., `pytest`, `ruff`, `mypy`) so other developers and WARP know how to run them.
+The suite covers 31 tests across three modules:
+
+- `tests/test_security.py` – `sanitize_session_id`, `sanitize_filename`, `validate_path_within_directory`, and the SQLite-backed rate limiter.
+- `tests/test_session.py` – `cleanup_expired_sessions` (expiry, idle timeout, max-sessions enforcement).
+- `tests/test_sql.py` – SQL keyword blocking, AND/OR allowlist regression, and read-only enforcement.
+
+A root-level `conftest.py` stubs all heavy dependencies (Streamlit, LangChain, ChromaDB, etc.) so the suite runs without a GPU or running Ollama instance. No lint or type-checking configuration is currently set up — if you add it, document the commands here.
 
 ## Configuration and environment
 
-Most configuration is done via environment variables defined and read near the top of `omniscience_pro.py`.
+Most configuration is done via environment variables defined and read in `config.py`.
 
 Key paths (all default to directories under the repo root):
 
@@ -126,7 +134,7 @@ Operational limits and safety-related settings:
 - `OMNISCIENCE_MAX_FILES_PER_SCAN` – cap on how many files a single scan can process.
 - `OMNISCIENCE_MAX_MESSAGES` – limit on messages kept per chat session.
 - Session expiry and idle timeouts – used by `cleanup_expired_sessions` to prune old sessions.
-- A simple in-memory rate limiter for per-client requests.
+- A SQLite-backed persistent rate limiter (`security.py`) — survives app restarts.
 
 Ollama configuration:
 
@@ -139,7 +147,21 @@ Security-related note: any new configuration that impacts file paths or external
 
 ### Overall structure
 
-- Single Python module: `omniscience_pro.py` implements configuration, security, retrieval/RAG, external tools, and the entire Streamlit UI.
+The codebase is split into 10 focused modules:
+
+| File | Purpose |
+| ---- | ------- |
+| `omniscience_pro.py` | Slim UI orchestrator — `main()` + sidebar wiring |
+| `config.py` | All constants and environment variables |
+| `security.py` | Input sanitizers, path validation, SQLite-backed rate limiter |
+| `session.py` | Chat session load/save/cleanup with file locking |
+| `file_utils.py` | File reading, chunking, directory scanning |
+| `rag_core.py` | Embeddings, LLM loader, ChromaDB vectorstore, RAG helpers |
+| `search.py` | Web (DuckDuckGo) + academic search (S2 / arXiv / OpenAlex) |
+| `sql_mode.py` | Natural-language → SQL with read-only SQLite enforcement |
+| `vision.py` | Image analysis via Ollama multimodal endpoint |
+| `ui_components.py` | CSS theme, streaming handler, clipboard helper |
+
 - Persistence is file-based only: vector store via Chroma on disk, chat history as JSON files, and uploads saved to a local directory.
 - Three user-facing modes are handled in one Streamlit app:
   - **Chat (RAG)** – local file/code/document retrieval plus optional web and academic search.
@@ -155,13 +177,13 @@ At a very high level:
 
 ### Configuration and security layer
 
-Environment-driven configuration at the top of `omniscience_pro.py` controls directories and limits (see **Configuration and environment** above). On top of that, security helpers are used throughout to avoid common pitfalls:
+Environment-driven configuration in `config.py` controls directories and limits (see **Configuration and environment** above). Security helpers in `security.py` are used throughout to avoid common pitfalls:
 
 - `sanitize_session_id` – ensures session IDs are simple, safe strings.
 - `sanitize_filename` – strips/normalizes filenames to prevent path traversal.
 - `validate_path_within_directory` – hard check that a path is inside an allowed base directory (defense against `..`, symlinks, etc.).
 - `sanitize_error_message` – removes sensitive paths and SQL fragments before surfacing them to the UI.
-- `check_rate_limit` – simple in-memory rate limiting.
+- `check_rate_limit` – SQLite-backed persistent rate limiting (survives restarts).
 
 Patterns to follow:
 
@@ -218,7 +240,7 @@ When extending the RAG pipeline (e.g., new file types or metadata):
 
 #### LLM backends (Ollama)
 
-- `load_llm` and `get_llm_for_chain` centralize Ollama model configuration and a basic health check (simple `.invoke("test")` on load).
+- `get_llm_for_chain` (in `rag_core.py`) instantiates an `OllamaLLM` with optional streaming callbacks. No startup health-check is performed — Ollama errors surface as UI error messages on the first request.
 - Different model choices are exposed in the UI depending on mode:
   - General chat models for Chat/RAG.
   - Vision-capable models for Vision/Image mode.
