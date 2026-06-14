@@ -1,0 +1,85 @@
+import pytest
+
+import security
+from sql_mode import query_sqlite_db
+
+
+class FakeLLM:
+    """Minimal LLM stub that returns a fixed SQL string."""
+    def __init__(self, sql: str):
+        self._sql = sql
+
+    def invoke(self, _prompt):
+        return self._sql
+
+
+# ── Keyword blocking ─────────────────────────────────────────────────────────
+
+def test_blocks_non_select_query(tmp_db):
+    result = query_sqlite_db(tmp_db, "drop everything", FakeLLM("DROP TABLE users"))
+    assert "Only SELECT" in result
+
+
+def test_blocks_delete(tmp_db):
+    result = query_sqlite_db(tmp_db, "remove bob", FakeLLM("DELETE FROM users WHERE id=2"))
+    assert "prohibited" in result.lower() or "Only SELECT" in result
+
+
+def test_blocks_union(tmp_db):
+    result = query_sqlite_db(tmp_db, "union query", FakeLLM("SELECT 1 UNION SELECT 2"))
+    assert "prohibited" in result.lower()
+
+
+def test_blocks_pragma(tmp_db):
+    result = query_sqlite_db(tmp_db, "pragma test", FakeLLM("PRAGMA user_version"))
+    assert "prohibited" in result.lower() or "Only SELECT" in result
+
+
+def test_blocks_comment_injection(tmp_db):
+    result = query_sqlite_db(tmp_db, "comment", FakeLLM("SELECT * FROM users -- comment"))
+    assert "prohibited" in result.lower()
+
+
+# ── AND / OR are now allowed (fixed bug) ────────────────────────────────────
+
+def test_allows_and_in_where_clause(tmp_db, monkeypatch):
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
+    result = query_sqlite_db(
+        tmp_db,
+        "find alice with id 1",
+        FakeLLM("SELECT * FROM users WHERE id=1 AND name='Alice'"),
+    )
+    assert "Alice" in result
+
+
+def test_allows_or_in_where_clause(tmp_db, monkeypatch):
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
+    result = query_sqlite_db(
+        tmp_db,
+        "find alice or bob",
+        FakeLLM("SELECT * FROM users WHERE id=1 OR id=2"),
+    )
+    assert "Alice" in result or "Bob" in result
+
+
+# ── Valid queries work end-to-end ────────────────────────────────────────────
+
+def test_valid_select_all(tmp_db, monkeypatch):
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
+    result = query_sqlite_db(tmp_db, "list all users", FakeLLM("SELECT * FROM users"))
+    assert "SQL:" in result
+    assert "Alice" in result
+    assert "Bob" in result
+
+
+def test_valid_select_with_limit(tmp_db, monkeypatch):
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
+    result = query_sqlite_db(tmp_db, "first user", FakeLLM("SELECT * FROM users LIMIT 1"))
+    assert "SQL:" in result
+
+
+# ── Bad DB path ───────────────────────────────────────────────────────────────
+
+def test_invalid_db_path():
+    result = query_sqlite_db("/nonexistent/path/db.sqlite", "list all", FakeLLM("SELECT 1"))
+    assert any(word in result.lower() for word in ["error", "failed", "invalid", "not found", "no such"])
