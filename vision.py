@@ -8,6 +8,15 @@ from security import sanitize_error_message
 logger = logging.getLogger(__name__)
 
 
+class BytesWrapper:
+    """Adapt raw bytes to the file-like interface expected by process_vision_request."""
+    def __init__(self, b: bytes):
+        self.b = b
+
+    def getvalue(self) -> bytes:
+        return self.b
+
+
 def process_vision_request(image_file, prompt: str, model_name: str = "llava") -> str:
     """Send an image + prompt to Ollama's multimodal endpoint and return the response."""
     import requests

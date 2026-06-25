@@ -30,7 +30,7 @@ from session import (
 )
 from ui_components import (
     PURPLE_THEME_CSS, VISION_PULSE_JS, SQL_PULSE_JS, THINKING_HTML,
-    StreamHandler, _get_startup_marker, copy_to_clipboard,
+    StreamHandler, _get_startup_marker, copy_to_clipboard, build_conversation_history,
 )
 from rag_core import (
     load_embeddings, get_llm_for_chain,
@@ -38,7 +38,7 @@ from rag_core import (
     parse_file_mentions, fuzzy_match_filenames,
 )
 from file_utils import process_uploaded_files, scan_directory
-from vision import process_vision_request
+from vision import process_vision_request, BytesWrapper
 from search import run_web_search, run_academic_search, HAS_WEB_SEARCH, HAS_SEMANTIC_SCHOLAR, HAS_ARXIV
 from sql_mode import query_sqlite_db
 
@@ -299,12 +299,6 @@ def main():
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing image..."):
-                    class BytesWrapper:
-                        def __init__(self, b):
-                            self.b = b
-                        def getvalue(self):
-                            return self.b
-
                     response_content = process_vision_request(BytesWrapper(image_bytes), prompt_text, model_name)
                     st.markdown(response_content)
                     st.session_state.messages.append({"role": "assistant", "content": response_content})
@@ -344,7 +338,7 @@ def main():
                     try:
                         if mode == "Database (SQL)":
                             thinking_placeholder.empty()
-                            if hasattr(st.session_state, 'db_path') and st.session_state.db_path:
+                            if st.session_state.get('db_path'):
                                 response_content = query_sqlite_db(st.session_state.db_path, prompt, llm)
                                 response_placeholder.markdown(response_content)
                             else:
@@ -393,19 +387,8 @@ def main():
                                         prompt, rag_context=rag_context, llm=extraction_llm
                                     )
 
-                                conversation_history = ""
-                                history_messages = (
-                                    st.session_state.messages[-10:]
-                                    if len(st.session_state.messages) > 10
-                                    else st.session_state.messages
-                                )
-                                if history_messages:
-                                    history_parts = []
-                                    for msg in history_messages:
-                                        role = "USER" if msg["role"] == "user" else "ASSISTANT"
-                                        content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
-                                        history_parts.append(f"{role}: {content}")
-                                    conversation_history = "\n\n".join(history_parts)
+                                history_parts = build_conversation_history(st.session_state.messages)
+                                conversation_history = "\n\n".join(history_parts)
 
                                 unified_prompt = f"""You are Omniscience, an AI assistant.
 
@@ -486,17 +469,8 @@ ANSWER:"""
                                 # No vectorstore — use LLM with optional search results
                                 context_parts = []
 
-                                history_parts = []
-                                history_messages = (
-                                    st.session_state.messages[-10:]
-                                    if len(st.session_state.messages) > 10
-                                    else st.session_state.messages
-                                )
-                                if history_messages:
-                                    for msg in history_messages:
-                                        role = "USER" if msg["role"] == "user" else "ASSISTANT"
-                                        content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
-                                        history_parts.append(f"{role}: {content}")
+                                history_parts = build_conversation_history(st.session_state.messages)
+                                if history_parts:
                                     context_parts.append(
                                         f"=== CONVERSATION HISTORY ===\n{chr(10).join(history_parts)}\n=== END CONVERSATION HISTORY ==="
                                     )

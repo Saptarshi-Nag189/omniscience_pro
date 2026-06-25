@@ -40,6 +40,7 @@ def get_llm_for_chain(model_name: str, callback_handler=None):
         return Ollama(
             model=model_name, temperature=0.2,
             base_url=OLLAMA_BASE_URL, callbacks=callbacks,
+            streaming=bool(callbacks),
         )
     except Exception:
         return None

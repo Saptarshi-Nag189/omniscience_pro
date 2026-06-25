@@ -45,6 +45,10 @@ _RL_DB = os.path.join(DB_DIRECTORY, "rate_limits.db")
 RATE_LIMIT_REQUESTS = 20
 RATE_LIMIT_WINDOW_SECONDS = 60
 
+# ── Conversation history ──────────────────────────────────────────────────────
+HISTORY_WINDOW = 10           # last N messages included in context
+HISTORY_EXCERPT_LENGTH = 500  # max chars per message in history
+
 # ── File scanning constants ───────────────────────────────────────────────────
 IGNORED_DIRS = {
     'node_modules', 'venv', '.venv', 'env', 'wenv', '.git', '.idea', '.vscode',
