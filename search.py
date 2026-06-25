@@ -185,7 +185,8 @@ def run_academic_search(query: str, max_results: int = 100,
                     for word, positions in valid_idx.items():
                         for pos in positions:
                             words[pos] = word
-                    abstract = ' '.join(words)[:300] + '...'
+                    joined = ' '.join(words)
+                    abstract = (joined[:300] + '...') if len(joined) > 300 else joined
 
                 all_papers.append({
                     'source': 'OpenAlex',

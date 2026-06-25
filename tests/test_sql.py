@@ -40,6 +40,21 @@ def test_blocks_comment_injection(tmp_db):
     assert "prohibited" in result.lower()
 
 
+# ── Identifiers that merely contain a keyword substring must NOT be blocked ───
+
+def test_allows_identifier_containing_keyword_substring(tmp_db, monkeypatch):
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
+    # "created_at" contains the substring CREATE — word-boundary matching must
+    # let this through instead of falsely flagging a prohibited keyword.
+    result = query_sqlite_db(
+        tmp_db,
+        "alias the name column",
+        FakeLLM("SELECT name AS created_at FROM users"),
+    )
+    assert "Alice" in result
+    assert "prohibited" not in result.lower()
+
+
 # ── AND / OR are now allowed (fixed bug) ────────────────────────────────────
 
 def test_allows_and_in_where_clause(tmp_db, monkeypatch):
