@@ -2,9 +2,9 @@
 Configuration: all environment variables, constants, and startup side effects.
 Import this module first — it creates necessary directories on import.
 """
+import logging
 import os
 import tempfile
-import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

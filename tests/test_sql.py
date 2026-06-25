@@ -1,4 +1,3 @@
-import pytest
 
 import security
 from sql_mode import query_sqlite_db

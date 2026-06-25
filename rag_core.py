@@ -1,20 +1,19 @@
 """RAG core: embeddings, LLM loading, vectorstore operations, and query parsing."""
+import logging
 import os
 import re
 import shutil
-import logging
 from typing import List, Tuple
 
-import streamlit as st
 import chromadb
+import streamlit as st
 from chromadb.config import Settings
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaLLM as Ollama
 from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaLLM as Ollama
 
 from config import DB_DIRECTORY, EMBEDDING_MODEL, OLLAMA_BASE_URL
-from security import sanitize_error_message
 
 logger = logging.getLogger(__name__)
 

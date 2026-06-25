@@ -13,34 +13,56 @@ Streamlit entry point. All application logic lives in the project modules:
   sql_mode.py      — natural-language SQLite querying
 """
 
-import os
 import base64
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 
-from config import DB_DIRECTORY, UPLOAD_DIR, MAX_FILE_SIZE_MB
-from security import check_rate_limit, sanitize_filename, sanitize_error_message
+from config import DB_DIRECTORY, MAX_FILE_SIZE_MB, UPLOAD_DIR
+from file_utils import process_uploaded_files, scan_directory
+from rag_core import (
+    delete_file_from_db,
+    fuzzy_match_filenames,
+    get_all_filenames,
+    get_llm_for_chain,
+    ingest_documents,
+    initialize_vectorstore,
+    load_embeddings,
+    parse_file_mentions,
+)
+from search import (
+    HAS_ARXIV,
+    HAS_SEMANTIC_SCHOLAR,
+    HAS_WEB_SEARCH,
+    run_academic_search,
+    run_web_search,
+)
+from security import check_rate_limit, sanitize_error_message, sanitize_filename
 from session import (
     cleanup_expired_sessions,
-    create_new_session, get_session_files, get_last_session,
-    load_session, save_session, save_last_session, delete_session,
+    create_new_session,
+    delete_session,
+    get_last_session,
+    get_session_files,
+    load_session,
+    save_last_session,
+    save_session,
 )
-from ui_components import (
-    PURPLE_THEME_CSS, VISION_PULSE_JS, SQL_PULSE_JS, THINKING_HTML,
-    StreamHandler, _get_startup_marker, copy_to_clipboard, build_conversation_history,
-)
-from rag_core import (
-    load_embeddings, get_llm_for_chain,
-    initialize_vectorstore, ingest_documents, delete_file_from_db, get_all_filenames,
-    parse_file_mentions, fuzzy_match_filenames,
-)
-from file_utils import process_uploaded_files, scan_directory
-from vision import process_vision_request, BytesWrapper
-from search import run_web_search, run_academic_search, HAS_WEB_SEARCH, HAS_SEMANTIC_SCHOLAR, HAS_ARXIV
 from sql_mode import query_sqlite_db
+from ui_components import (
+    PURPLE_THEME_CSS,
+    SQL_PULSE_JS,
+    THINKING_HTML,
+    VISION_PULSE_JS,
+    StreamHandler,
+    _get_startup_marker,
+    build_conversation_history,
+    copy_to_clipboard,
+)
+from vision import BytesWrapper, process_vision_request
 
 logger = logging.getLogger(__name__)
 

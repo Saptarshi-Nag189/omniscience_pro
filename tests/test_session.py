@@ -1,8 +1,7 @@
-import os
 import json
+import os
 import time
 from datetime import datetime, timedelta
-import pytest
 
 import session
 from session import cleanup_expired_sessions

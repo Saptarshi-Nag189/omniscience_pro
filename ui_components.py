@@ -183,7 +183,7 @@ def _get_startup_marker():
 
 def build_conversation_history(messages: list) -> List[str]:
     """Return ['USER: ...', 'ASSISTANT: ...'] strings for the last HISTORY_WINDOW messages."""
-    from config import HISTORY_WINDOW, HISTORY_EXCERPT_LENGTH
+    from config import HISTORY_EXCERPT_LENGTH, HISTORY_WINDOW
     window = messages[-HISTORY_WINDOW:] if len(messages) > HISTORY_WINDOW else messages
     parts = []
     for msg in window:
