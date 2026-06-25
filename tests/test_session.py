@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from datetime import datetime, timedelta
 import pytest
 
 import session
@@ -79,3 +80,37 @@ def test_cleanup_returns_zero_when_empty(tmp_chats, monkeypatch):
     monkeypatch.setattr(session, "SESSION_IDLE_TIMEOUT_HOURS", 999)
     monkeypatch.setattr(session, "MAX_SESSIONS", 1000)
     assert cleanup_expired_sessions() == 0
+
+
+# ── expiry (creation time) and idle (mtime) are independent signals ──────────
+
+def test_expiry_uses_filename_creation_time_not_mtime(tmp_chats, monkeypatch):
+    """A session created long ago expires even if it was just written (fresh mtime)."""
+    monkeypatch.setattr(session, "SESSION_EXPIRY_HOURS", 24)
+    monkeypatch.setattr(session, "SESSION_IDLE_TIMEOUT_HOURS", 999)  # idle won't fire
+    monkeypatch.setattr(session, "MAX_SESSIONS", 1000)
+
+    old_ts = (datetime.now() - timedelta(days=3)).strftime("%Y%m%d_%H%M%S")
+    path = tmp_chats / f"chat_{old_ts}_abcd1234.json"
+    path.write_text(json.dumps([]))  # mtime = now (fresh)
+
+    removed = cleanup_expired_sessions()
+    assert removed == 1
+    assert not path.exists()
+
+
+def test_idle_uses_mtime_not_creation_time(tmp_chats, monkeypatch):
+    """A recently-created session still gets pruned once it goes idle (old mtime)."""
+    monkeypatch.setattr(session, "SESSION_EXPIRY_HOURS", 168)  # expiry won't fire
+    monkeypatch.setattr(session, "SESSION_IDLE_TIMEOUT_HOURS", 4)
+    monkeypatch.setattr(session, "MAX_SESSIONS", 1000)
+
+    fresh_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = tmp_chats / f"chat_{fresh_ts}_abcd1234.json"
+    path.write_text(json.dumps([]))
+    past = time.time() - 5 * 3600  # last written 5 h ago
+    os.utime(path, (past, past))
+
+    removed = cleanup_expired_sessions()
+    assert removed == 1
+    assert not path.exists()
