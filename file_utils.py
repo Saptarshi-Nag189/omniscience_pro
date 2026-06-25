@@ -1,17 +1,22 @@
 """File reading, upload processing, and directory scanning."""
-import os
 import logging
+import os
 from pathlib import Path
 from typing import List
 
-import streamlit as st
 import pypdf
+import streamlit as st
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
+from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
 from config import (
-    UPLOAD_DIR, MAX_FILE_SIZE_MB, MAX_FILES_PER_SCAN,
-    IGNORED_DIRS, IGNORED_SUFFIXES, IGNORED_FILE_EXTENSIONS, IGNORED_FILES,
+    IGNORED_DIRS,
+    IGNORED_FILE_EXTENSIONS,
+    IGNORED_FILES,
+    IGNORED_SUFFIXES,
+    MAX_FILE_SIZE_MB,
+    MAX_FILES_PER_SCAN,
+    UPLOAD_DIR,
 )
 from security import sanitize_filename, validate_path_within_directory
 

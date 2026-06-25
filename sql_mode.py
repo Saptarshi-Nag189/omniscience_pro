@@ -1,8 +1,8 @@
 """SQLite natural-language querying with comprehensive read-only safety restrictions."""
+import logging
 import os
 import re
 import sqlite3
-import logging
 
 from security import check_rate_limit, sanitize_error_message
 
