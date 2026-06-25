@@ -1,22 +1,25 @@
 """Session management: create, load, save, delete, and clean up chat sessions."""
+import base64
+import fcntl
+import json
+import logging
 import os
 import re
-import json
-import base64
 import uuid
-import fcntl
-import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 import streamlit as st
 
 from config import (
-    CHATS_DIR, MAX_MESSAGES_PER_SESSION,
-    SESSION_EXPIRY_HOURS, SESSION_IDLE_TIMEOUT_HOURS, MAX_SESSIONS,
+    CHATS_DIR,
+    MAX_MESSAGES_PER_SESSION,
+    MAX_SESSIONS,
+    SESSION_EXPIRY_HOURS,
+    SESSION_IDLE_TIMEOUT_HOURS,
 )
-from security import sanitize_session_id, validate_path_within_directory, sanitize_error_message
+from security import sanitize_error_message, sanitize_session_id, validate_path_within_directory
 
 logger = logging.getLogger(__name__)
 

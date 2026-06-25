@@ -1,7 +1,5 @@
-import os
-import json
-import time
 import sqlite3
+
 import pytest
 
 

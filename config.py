@@ -2,9 +2,9 @@
 Configuration: all environment variables, constants, and startup side effects.
 Import this module first — it creates necessary directories on import.
 """
+import logging
 import os
 import tempfile
-import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -44,6 +44,10 @@ MAX_SESSIONS = _get_env_int('OMNISCIENCE_MAX_SESSIONS', 100, 10, 1000)
 _RL_DB = os.path.join(DB_DIRECTORY, "rate_limits.db")
 RATE_LIMIT_REQUESTS = 20
 RATE_LIMIT_WINDOW_SECONDS = 60
+
+# ── Conversation history ──────────────────────────────────────────────────────
+HISTORY_WINDOW = 10           # last N messages included in context
+HISTORY_EXCERPT_LENGTH = 500  # max chars per message in history
 
 # ── File scanning constants ───────────────────────────────────────────────────
 IGNORED_DIRS = {

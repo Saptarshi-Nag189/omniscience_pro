@@ -1,9 +1,8 @@
 """Web and academic search integrations (DuckDuckGo, Semantic Scholar, arXiv, OpenAlex)."""
 import json
 import logging
-import urllib.request
 import urllib.parse
-import xml.etree.ElementTree as ET
+import urllib.request
 from datetime import datetime
 from typing import Optional
 
@@ -11,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 # ── Optional dependency flags ─────────────────────────────────────────────────
 try:
-    from langchain_community.tools import DuckDuckGoSearchRun
     from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
     HAS_WEB_SEARCH = True
 except ImportError:

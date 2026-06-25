@@ -13,34 +13,58 @@ Streamlit entry point. All application logic lives in the project modules:
   sql_mode.py      — natural-language SQLite querying
 """
 
-import os
 import base64
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 
-from config import DB_DIRECTORY, UPLOAD_DIR, MAX_FILE_SIZE_MB
-from security import check_rate_limit, sanitize_filename, sanitize_error_message
+from config import DB_DIRECTORY, MAX_FILE_SIZE_MB, UPLOAD_DIR
+from file_utils import process_uploaded_files, scan_directory
+from rag_core import (
+    delete_file_from_db,
+    fuzzy_match_filenames,
+    get_all_filenames,
+    get_llm_for_chain,
+    get_loaded_documents,
+    ingest_documents,
+    initialize_vectorstore,
+    list_ollama_models,
+    load_embeddings,
+    parse_file_mentions,
+)
+from search import (
+    HAS_ARXIV,
+    HAS_SEMANTIC_SCHOLAR,
+    HAS_WEB_SEARCH,
+    run_academic_search,
+    run_web_search,
+)
+from security import check_rate_limit, sanitize_error_message, sanitize_filename
 from session import (
     cleanup_expired_sessions,
-    create_new_session, get_session_files, get_last_session,
-    load_session, save_session, save_last_session, delete_session,
+    create_new_session,
+    delete_session,
+    get_last_session,
+    get_session_files,
+    load_session,
+    save_last_session,
+    save_session,
 )
-from ui_components import (
-    PURPLE_THEME_CSS, VISION_PULSE_JS, SQL_PULSE_JS, THINKING_HTML,
-    StreamHandler, _get_startup_marker, copy_to_clipboard,
-)
-from rag_core import (
-    load_embeddings, get_llm_for_chain,
-    initialize_vectorstore, ingest_documents, delete_file_from_db, get_all_filenames,
-    parse_file_mentions, fuzzy_match_filenames,
-)
-from file_utils import process_uploaded_files, scan_directory
-from vision import process_vision_request
-from search import run_web_search, run_academic_search, HAS_WEB_SEARCH, HAS_SEMANTIC_SCHOLAR, HAS_ARXIV
 from sql_mode import query_sqlite_db
+from ui_components import (
+    PURPLE_THEME_CSS,
+    SQL_PULSE_JS,
+    THINKING_HTML,
+    VISION_PULSE_JS,
+    StreamHandler,
+    _get_startup_marker,
+    build_conversation_history,
+    copy_to_clipboard,
+)
+from vision import BytesWrapper, process_vision_request
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +198,8 @@ def main():
 
         st.markdown("---")
 
+        available_models = list_ollama_models()
+
         if mode == "Vision (Images)":
             model_options = ["llava:7b", "llama3.2-vision"]
             model_name = st.selectbox("Vision Model", options=model_options, index=0)
@@ -181,6 +207,9 @@ def main():
         else:
             model_options = ["qwen3:4b", "qwen2.5-coder:7b", "qwen2.5-coder:1.5b", "llama3.2:3b", "mistral:7b"]
             model_name = st.selectbox("Model", options=model_options, index=1)
+
+        if available_models and model_name not in available_models:
+            st.warning(f"Model **{model_name}** not found in Ollama. Run: `ollama pull {model_name}`")
 
         if mode == "Chat (RAG)":
             st.markdown("#### DATA SOURCE")
@@ -227,6 +256,13 @@ def main():
                 st.session_state.vectorstore = initialize_vectorstore(load_embeddings(), False)
                 docs = process_uploaded_files(uploaded_files)
                 ingest_documents(st.session_state.vectorstore, docs)
+
+            if st.session_state.vectorstore:
+                loaded_docs = get_loaded_documents(st.session_state.vectorstore)
+                if loaded_docs:
+                    with st.expander(f"Loaded documents ({len(loaded_docs)})"):
+                        for doc in loaded_docs:
+                            st.markdown(f"- `{os.path.basename(doc)}`")
 
             with st.expander("Manage Knowledge Base"):
                 if st.session_state.vectorstore:
@@ -299,12 +335,6 @@ def main():
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing image..."):
-                    class BytesWrapper:
-                        def __init__(self, b):
-                            self.b = b
-                        def getvalue(self):
-                            return self.b
-
                     response_content = process_vision_request(BytesWrapper(image_bytes), prompt_text, model_name)
                     st.markdown(response_content)
                     st.session_state.messages.append({"role": "assistant", "content": response_content})
@@ -344,7 +374,7 @@ def main():
                     try:
                         if mode == "Database (SQL)":
                             thinking_placeholder.empty()
-                            if hasattr(st.session_state, 'db_path') and st.session_state.db_path:
+                            if st.session_state.get('db_path'):
                                 response_content = query_sqlite_db(st.session_state.db_path, prompt, llm)
                                 response_placeholder.markdown(response_content)
                             else:
@@ -393,19 +423,8 @@ def main():
                                         prompt, rag_context=rag_context, llm=extraction_llm
                                     )
 
-                                conversation_history = ""
-                                history_messages = (
-                                    st.session_state.messages[-10:]
-                                    if len(st.session_state.messages) > 10
-                                    else st.session_state.messages
-                                )
-                                if history_messages:
-                                    history_parts = []
-                                    for msg in history_messages:
-                                        role = "USER" if msg["role"] == "user" else "ASSISTANT"
-                                        content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
-                                        history_parts.append(f"{role}: {content}")
-                                    conversation_history = "\n\n".join(history_parts)
+                                history_parts = build_conversation_history(st.session_state.messages)
+                                conversation_history = "\n\n".join(history_parts)
 
                                 unified_prompt = f"""You are Omniscience, an AI assistant.
 
@@ -486,17 +505,8 @@ ANSWER:"""
                                 # No vectorstore — use LLM with optional search results
                                 context_parts = []
 
-                                history_parts = []
-                                history_messages = (
-                                    st.session_state.messages[-10:]
-                                    if len(st.session_state.messages) > 10
-                                    else st.session_state.messages
-                                )
-                                if history_messages:
-                                    for msg in history_messages:
-                                        role = "USER" if msg["role"] == "user" else "ASSISTANT"
-                                        content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
-                                        history_parts.append(f"{role}: {content}")
+                                history_parts = build_conversation_history(st.session_state.messages)
+                                if history_parts:
                                     context_parts.append(
                                         f"=== CONVERSATION HISTORY ===\n{chr(10).join(history_parts)}\n=== END CONVERSATION HISTORY ==="
                                     )

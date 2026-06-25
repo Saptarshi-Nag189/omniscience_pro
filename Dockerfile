@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
 # Copy application code
-COPY omniscience_pro.py .
+COPY *.py .
 COPY prompts.md .
 
 # Create directories for data persistence

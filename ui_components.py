@@ -1,6 +1,7 @@
 """UI building blocks: CSS theme, thinking indicator, stream handler, clipboard helper."""
 import json
 import logging
+from typing import List
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -176,6 +177,22 @@ def _get_startup_marker():
     """Cached startup ID — changes on fresh starts, stable across browser refreshes."""
     import time
     return {"startup_time": time.time(), "session_created": False}
+
+
+# ── Conversation history builder ─────────────────────────────────────────────
+
+def build_conversation_history(messages: list) -> List[str]:
+    """Return ['USER: ...', 'ASSISTANT: ...'] strings for the last HISTORY_WINDOW messages."""
+    from config import HISTORY_EXCERPT_LENGTH, HISTORY_WINDOW
+    window = messages[-HISTORY_WINDOW:] if len(messages) > HISTORY_WINDOW else messages
+    parts = []
+    for msg in window:
+        role = "USER" if msg["role"] == "user" else "ASSISTANT"
+        content = msg["content"]
+        if len(content) > HISTORY_EXCERPT_LENGTH:
+            content = content[:HISTORY_EXCERPT_LENGTH] + "..."
+        parts.append(f"{role}: {content}")
+    return parts
 
 
 # ── Clipboard helper ──────────────────────────────────────────────────────────
