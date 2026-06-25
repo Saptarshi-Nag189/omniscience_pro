@@ -23,7 +23,8 @@ def process_vision_request(image_file, prompt: str, model_name: str = "llava") -
     }
 
     try:
-        response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+        # Cap the request so a stalled vision model can't hang the UI indefinitely.
+        response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=120)
         if response.status_code == 200:
             return response.json().get("response", "No response from vision model.")
         return "Vision Error: Unable to process image."
