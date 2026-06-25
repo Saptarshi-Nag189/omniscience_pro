@@ -28,8 +28,10 @@ from rag_core import (
     fuzzy_match_filenames,
     get_all_filenames,
     get_llm_for_chain,
+    get_loaded_documents,
     ingest_documents,
     initialize_vectorstore,
+    list_ollama_models,
     load_embeddings,
     parse_file_mentions,
 )
@@ -196,6 +198,8 @@ def main():
 
         st.markdown("---")
 
+        available_models = list_ollama_models()
+
         if mode == "Vision (Images)":
             model_options = ["llava:7b", "llama3.2-vision"]
             model_name = st.selectbox("Vision Model", options=model_options, index=0)
@@ -203,6 +207,9 @@ def main():
         else:
             model_options = ["qwen3:4b", "qwen2.5-coder:7b", "qwen2.5-coder:1.5b", "llama3.2:3b", "mistral:7b"]
             model_name = st.selectbox("Model", options=model_options, index=1)
+
+        if available_models and model_name not in available_models:
+            st.warning(f"Model **{model_name}** not found in Ollama. Run: `ollama pull {model_name}`")
 
         if mode == "Chat (RAG)":
             st.markdown("#### DATA SOURCE")
@@ -249,6 +256,13 @@ def main():
                 st.session_state.vectorstore = initialize_vectorstore(load_embeddings(), False)
                 docs = process_uploaded_files(uploaded_files)
                 ingest_documents(st.session_state.vectorstore, docs)
+
+            if st.session_state.vectorstore:
+                loaded_docs = get_loaded_documents(st.session_state.vectorstore)
+                if loaded_docs:
+                    with st.expander(f"Loaded documents ({len(loaded_docs)})"):
+                        for doc in loaded_docs:
+                            st.markdown(f"- `{os.path.basename(doc)}`")
 
             with st.expander("Manage Knowledge Base"):
                 if st.session_state.vectorstore:

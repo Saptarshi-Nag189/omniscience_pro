@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import urllib.request
 from typing import List, Tuple
 
 import chromadb
@@ -89,6 +90,33 @@ def get_all_filenames(vectorstore) -> List[str]:
     try:
         data = vectorstore._collection.get(include=['metadatas'])
         return list({m['filename'] for m in data['metadatas'] if 'filename' in m})
+    except Exception:
+        return []
+
+
+# ── Ollama model discovery ────────────────────────────────────────────────────
+
+def list_ollama_models() -> List[str]:
+    """Return model names available in Ollama, or [] on connection error."""
+    import json as _json
+    try:
+        req = urllib.request.Request(f"{OLLAMA_BASE_URL}/api/tags")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            data = _json.loads(resp.read())
+            return [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return []
+
+
+def get_loaded_documents(vectorstore) -> List[str]:
+    """Return unique source filenames currently in the vectorstore."""
+    try:
+        data = vectorstore._collection.get(include=["metadatas"])
+        sources = {
+            m.get("filename") or m.get("source", "")
+            for m in data["metadatas"]
+        }
+        return sorted(s for s in sources if s)
     except Exception:
         return []
 
