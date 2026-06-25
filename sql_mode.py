@@ -1,5 +1,6 @@
 """SQLite natural-language querying with comprehensive read-only safety restrictions."""
 import os
+import re
 import sqlite3
 import logging
 
@@ -7,16 +8,23 @@ from security import check_rate_limit, sanitize_error_message
 
 logger = logging.getLogger(__name__)
 
+# Word-like SQL keywords — matched on word boundaries so legitimate identifiers
+# that merely contain a keyword as a substring (e.g. "created_at" -> CREATE,
+# "update_time" -> UPDATE) are not falsely rejected.
 _DANGEROUS_KEYWORDS = [
     'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
     'TRUNCATE', 'EXEC', 'EXECUTE', 'GRANT', 'REVOKE',
     'ATTACH', 'DETACH', 'PRAGMA', 'LOAD_EXTENSION',
     'INTO OUTFILE', 'INTO DUMPFILE',
     'VACUUM', 'REINDEX', 'ANALYZE',
-    ';--', '/*', '*/',
     'UNION',
-    '--', '#',
 ]
+
+# Comment / statement-separator sequences — matched as raw substrings because
+# they contain non-word characters that word boundaries can't anchor to.
+_DANGEROUS_SEQUENCES = [';--', '/*', '*/', '--', '#']
+
+_KEYWORD_RE = re.compile(r'\b(' + '|'.join(re.escape(k) for k in _DANGEROUS_KEYWORDS) + r')\b')
 
 _QUERY_TIMEOUT = 5
 _MAX_ROWS = 1000
@@ -61,10 +69,16 @@ Return ONLY the SQL query."""
                 logger.warning(f"Blocked non-SELECT SQL query: {sql_query[:100]}")
                 return "Only SELECT queries are allowed for security reasons."
 
-            for keyword in _DANGEROUS_KEYWORDS:
-                if keyword in sql_upper:
-                    logger.warning(f"Blocked dangerous SQL keyword '{keyword}': {sql_query[:100]}")
-                    return f"Query contains prohibited keyword: {keyword}"
+            kw_match = _KEYWORD_RE.search(sql_upper)
+            if kw_match:
+                keyword = kw_match.group(1)
+                logger.warning(f"Blocked dangerous SQL keyword '{keyword}': {sql_query[:100]}")
+                return f"Query contains prohibited keyword: {keyword}"
+
+            for seq in _DANGEROUS_SEQUENCES:
+                if seq in sql_upper:
+                    logger.warning(f"Blocked dangerous SQL sequence '{seq}': {sql_query[:100]}")
+                    return f"Query contains prohibited keyword: {seq}"
 
             if sql_query.count(';') > 1:
                 return "Multiple SQL statements are not allowed."

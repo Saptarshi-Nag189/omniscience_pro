@@ -1,5 +1,6 @@
 """Session management: create, load, save, delete, and clean up chat sessions."""
 import os
+import re
 import json
 import base64
 import uuid
@@ -22,8 +23,27 @@ logger = logging.getLogger(__name__)
 LAST_SESSION_FILE = os.path.join(CHATS_DIR, '.last_session')
 
 
+def _parse_session_ctime(filename: str) -> Optional[datetime]:
+    """Extract creation time from a 'chat_YYYYMMDD_HHMMSS_*.json' filename.
+
+    Returns None for filenames that don't encode a parseable timestamp.
+    """
+    match = re.match(r'chat_(\d{8})_(\d{6})_', filename)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1) + match.group(2), '%Y%m%d%H%M%S')
+    except ValueError:
+        return None
+
+
 def cleanup_expired_sessions() -> int:
     """Remove expired/idle sessions and enforce the max session limit.
+
+    Two independent signals decide removal:
+      - expiry: total age since the session was created (from the filename
+        timestamp, falling back to mtime when the name isn't parseable).
+      - idle:   time since the last write (file mtime).
 
     Called once on app startup. Returns the number of sessions removed.
     """
@@ -41,7 +61,12 @@ def cleanup_expired_sessions() -> int:
         path = os.path.join(CHATS_DIR, f)
         try:
             mtime = datetime.fromtimestamp(os.path.getmtime(path))
-            age_hours = (now - mtime).total_seconds() / 3600
+            idle_hours = (now - mtime).total_seconds() / 3600
+
+            # Total age is measured from creation time; mtime is the fallback
+            # for sessions whose filename predates the chat_<timestamp> scheme.
+            created = _parse_session_ctime(f) or mtime
+            age_hours = (now - created).total_seconds() / 3600
 
             if age_hours > SESSION_EXPIRY_HOURS:
                 os.remove(path)
@@ -49,7 +74,7 @@ def cleanup_expired_sessions() -> int:
                 logger.info(f"Removed expired session: {f}")
                 continue
 
-            if age_hours > SESSION_IDLE_TIMEOUT_HOURS:
+            if idle_hours > SESSION_IDLE_TIMEOUT_HOURS:
                 os.remove(path)
                 removed += 1
                 logger.info(f"Removed idle session: {f}")
