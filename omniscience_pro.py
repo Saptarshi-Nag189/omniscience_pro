@@ -70,6 +70,97 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════
+# PROMPT CONSTRUCTION
+# ═══════════════════════════════════════════════════════════════════
+
+def _build_prompt(query, history_parts, rag_context=None,
+                  web_results="", academic_results=""):
+    """Build the LLM prompt in one place.
+
+    With ``rag_context`` supplied, returns the unified RAG template (local
+    context + optional web/academic sources). Without it, returns the
+    augmented-search template used when no vectorstore is available.
+    """
+    if rag_context is not None:
+        conversation_history = "\n\n".join(history_parts)
+        prompt_text = f"""You are Omniscience, an AI assistant.
+
+You may be given:
+- Conversation history
+- Local code or documents
+- Web search results
+- Academic search results
+
+==============================
+CONVERSATION HISTORY
+==============================
+{conversation_history if conversation_history else "(No previous messages)"}
+
+==============================
+LOCAL CONTEXT
+==============================
+{rag_context}
+
+"""
+        if web_results:
+            prompt_text += f"""==============================
+WEB RESULTS
+==============================
+{web_results}
+
+"""
+        if academic_results:
+            prompt_text += f"""==============================
+ACADEMIC RESULTS
+==============================
+{academic_results}
+
+"""
+        prompt_text += f"""USER QUESTION:
+{query}
+
+INSTRUCTIONS:
+- First decide: Is the LOCAL CONTEXT useful for answering the question?
+- If YES:
+  - Answer using the LOCAL CONTEXT
+  - Quote or refer to it when helpful
+- If NO:
+  - Ignore LOCAL CONTEXT completely
+  - Answer using WEB or ACADEMIC results only
+
+RULES:
+- Do not mix unrelated sources
+- Do not invent facts, code, or citations
+- If none of the sources help, say: "The provided sources do not answer this."
+
+ANSWER:"""
+        return prompt_text
+
+    return f"""Answer the question using the sources below.
+
+CONVERSATION HISTORY:
+{chr(10).join(history_parts) if history_parts else "(None)"}
+
+ACADEMIC RESULTS:
+{academic_results if academic_results else "(None)"}
+
+WEB RESULTS:
+{web_results if web_results else "(None)"}
+
+QUESTION:
+{query}
+
+RULES:
+- Use conversation history only to understand follow-up questions
+- Prefer academic results when available
+- Ignore irrelevant web results
+- Do not invent information
+- If the sources do not answer the question, say so clearly
+
+ANSWER:"""
+
+
+# ═══════════════════════════════════════════════════════════════════
 # MAIN UI
 # ═══════════════════════════════════════════════════════════════════
 
@@ -424,59 +515,11 @@ def main():
                                     )
 
                                 history_parts = build_conversation_history(st.session_state.messages)
-                                conversation_history = "\n\n".join(history_parts)
 
-                                unified_prompt = f"""You are Omniscience, an AI assistant.
-
-You may be given:
-- Conversation history
-- Local code or documents
-- Web search results
-- Academic search results
-
-==============================
-CONVERSATION HISTORY
-==============================
-{conversation_history if conversation_history else "(No previous messages)"}
-
-==============================
-LOCAL CONTEXT
-==============================
-{rag_context}
-
-"""
-                                if web_results:
-                                    unified_prompt += f"""==============================
-WEB RESULTS
-==============================
-{web_results}
-
-"""
-                                if academic_results:
-                                    unified_prompt += f"""==============================
-ACADEMIC RESULTS
-==============================
-{academic_results}
-
-"""
-                                unified_prompt += f"""USER QUESTION:
-{prompt}
-
-INSTRUCTIONS:
-- First decide: Is the LOCAL CONTEXT useful for answering the question?
-- If YES:
-  - Answer using the LOCAL CONTEXT
-  - Quote or refer to it when helpful
-- If NO:
-  - Ignore LOCAL CONTEXT completely
-  - Answer using WEB or ACADEMIC results only
-
-RULES:
-- Do not mix unrelated sources
-- Do not invent facts, code, or citations
-- If none of the sources help, say: "The provided sources do not answer this."
-
-ANSWER:"""
+                                unified_prompt = _build_prompt(
+                                    prompt, history_parts, rag_context=rag_context,
+                                    web_results=web_results, academic_results=academic_results,
+                                )
 
                                 response_content = llm.invoke(unified_prompt)
                                 thinking_placeholder.empty()
@@ -524,28 +567,10 @@ ANSWER:"""
                                     )
 
                                 if context_parts:
-                                    augmented_prompt = f"""Answer the question using the sources below.
-
-CONVERSATION HISTORY:
-{chr(10).join(history_parts) if history_parts else "(None)"}
-
-ACADEMIC RESULTS:
-{academic_results if academic_results else "(None)"}
-
-WEB RESULTS:
-{web_results if web_results else "(None)"}
-
-QUESTION:
-{prompt}
-
-RULES:
-- Use conversation history only to understand follow-up questions
-- Prefer academic results when available
-- Ignore irrelevant web results
-- Do not invent information
-- If the sources do not answer the question, say so clearly
-
-ANSWER:"""
+                                    augmented_prompt = _build_prompt(
+                                        prompt, history_parts,
+                                        web_results=web_results, academic_results=academic_results,
+                                    )
                                     response_content = llm.invoke(augmented_prompt)
                                 else:
                                     response_content = llm.invoke(prompt)
