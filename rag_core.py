@@ -12,7 +12,6 @@ from chromadb.config import Settings
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_ollama import OllamaLLM as Ollama
 
 from config import DB_DIRECTORY, EMBEDDING_MODEL, OLLAMA_BASE_URL
 
@@ -32,18 +31,8 @@ def load_embeddings() -> HuggingFaceEmbeddings:
 
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
-
-def get_llm_for_chain(model_name: str, callback_handler=None):
-    """Instantiate an Ollama LLM for chain use, with optional streaming callbacks."""
-    try:
-        callbacks = [callback_handler] if callback_handler else []
-        return Ollama(
-            model=model_name, temperature=0.2,
-            base_url=OLLAMA_BASE_URL, callbacks=callbacks,
-            streaming=bool(callbacks),
-        )
-    except Exception:
-        return None
+# Chat-model construction now lives in providers.build_chat_llm, which supports
+# Ollama plus optional cloud providers behind a uniform str-output interface.
 
 
 # ── Vectorstore ───────────────────────────────────────────────────────────────

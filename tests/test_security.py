@@ -5,6 +5,7 @@ import pytest
 import security
 from security import (
     check_rate_limit,
+    sanitize_error_message,
     sanitize_filename,
     sanitize_session_id,
     validate_path_within_directory,
@@ -75,6 +76,37 @@ def test_validate_path_rejects_outside(tmp_path):
 def test_validate_path_rejects_parent_escape(tmp_path):
     escaped = tmp_path / ".." / "outside.txt"
     assert validate_path_within_directory(escaped, tmp_path) is False
+
+
+# ── sanitize_error_message redacts API keys ─────────────────────────────────
+
+def test_redacts_openai_key():
+    out = sanitize_error_message(Exception("Auth failed for sk-abc0123456789XYZ token"))
+    assert "sk-abc0123456789XYZ" not in out
+    assert "[REDACTED]" in out
+
+
+def test_redacts_anthropic_key():
+    out = sanitize_error_message(Exception("invalid key sk-ant-api03-AAAABBBBcccc"))
+    assert "sk-ant" not in out
+    assert "[REDACTED]" in out
+
+
+def test_redacts_google_key():
+    out = sanitize_error_message(Exception("bad request AIzaSyA1234567890abcdEFG"))
+    assert "AIzaSy" not in out
+    assert "[REDACTED]" in out
+
+
+def test_redacts_bearer_token():
+    out = sanitize_error_message(Exception("header Bearer abcdEFGH12345678 rejected"))
+    assert "abcdEFGH12345678" not in out
+    assert "[REDACTED]" in out
+
+
+def test_non_secret_error_untouched():
+    out = sanitize_error_message(Exception("model not found"))
+    assert "model not found" in out
 
 
 # ── check_rate_limit (SQLite-backed) ────────────────────────────────────────

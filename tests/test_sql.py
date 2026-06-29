@@ -1,6 +1,16 @@
 
+import pytest
+
 import security
 from sql_mode import query_sqlite_db
+
+
+@pytest.fixture(autouse=True)
+def _isolate_rate_limit(tmp_rl_db, monkeypatch):
+    """Isolate every SQL test from the shared rate-limit DB so repeated suite
+    runs within the 60s window don't exhaust the quota and turn the blocking
+    assertions flaky."""
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
 
 
 class FakeLLM:

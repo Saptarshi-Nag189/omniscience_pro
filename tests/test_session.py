@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 
 import session
-from session import cleanup_expired_sessions
+from session import cleanup_expired_sessions, save_session
 
 
 def _write_session(chats_dir, name, age_seconds):
@@ -79,6 +79,22 @@ def test_cleanup_returns_zero_when_empty(tmp_chats, monkeypatch):
     monkeypatch.setattr(session, "SESSION_IDLE_TIMEOUT_HOURS", 999)
     monkeypatch.setattr(session, "MAX_SESSIONS", 1000)
     assert cleanup_expired_sessions() == 0
+
+
+# ── API keys must never be persisted to session files ────────────────────────
+
+def test_saved_session_contains_no_api_key(tmp_chats):
+    """Only message role/content is persisted — provider keys live in memory only."""
+    sid = "chat_20240101_120000_abcd1234"
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi there", "sources": ["a.py"]},
+    ]
+    save_session(sid, messages)
+
+    raw = (tmp_chats / f"{sid}.json").read_text()
+    assert "api_key" not in raw
+    assert "sk-" not in raw
 
 
 # ── expiry (creation time) and idle (mtime) are independent signals ──────────

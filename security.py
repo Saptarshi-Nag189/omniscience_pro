@@ -89,6 +89,7 @@ def check_rate_limit(user_id: str = "default") -> bool:
 def sanitize_error_message(error: Exception) -> str:
     """Sanitize error messages to prevent information disclosure."""
     error_str = str(error)
+    error_str = _redact_api_keys(error_str)
     error_str = re.sub(r'(/[^\s]+)+', '[PATH]', error_str)
     error_str = re.sub(
         r'(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE)[\s\S]*', '[SQL]',
@@ -97,3 +98,19 @@ def sanitize_error_message(error: Exception) -> str:
     if len(error_str) > 200:
         error_str = error_str[:200] + '...'
     return error_str
+
+
+# API-key-shaped tokens that must never surface in a UI error message.
+_API_KEY_PATTERNS = [
+    re.compile(r'sk-ant-[A-Za-z0-9_\-]{8,}'),        # Anthropic
+    re.compile(r'sk-[A-Za-z0-9_\-]{16,}'),           # OpenAI / compatible
+    re.compile(r'AIza[A-Za-z0-9_\-]{10,}'),          # Google
+    re.compile(r'(?i)bearer\s+[A-Za-z0-9._\-]{8,}'),  # Authorization headers
+]
+
+
+def _redact_api_keys(text: str) -> str:
+    """Replace anything resembling an API key/bearer token with [REDACTED]."""
+    for pat in _API_KEY_PATTERNS:
+        text = pat.sub('[REDACTED]', text)
+    return text
