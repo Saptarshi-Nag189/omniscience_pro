@@ -82,7 +82,8 @@ def _raw_chat_model(provider_type: str, model: str, api_key: str, base_url: str 
             from langchain_google_genai import ChatGoogleGenerativeAI
             return ChatGoogleGenerativeAI(model=model, temperature=0.2, google_api_key=api_key)
     except Exception as e:
-        logger.warning(f"Failed to build vision model for {provider_type}: {e}")
+        from security import redact_secrets
+        logger.warning(f"Failed to build vision model for {provider_type}: {redact_secrets(e)}")
     return None
 
 

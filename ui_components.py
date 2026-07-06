@@ -12,9 +12,8 @@ logger = logging.getLogger(__name__)
 # ── CSS theme ─────────────────────────────────────────────────────────────────
 PURPLE_THEME_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
-
-    .stApp { background-color: #0f0f12; color: #e0e0e0; font-family: 'Inter', sans-serif; }
+    /* System font stack — no external font fetch, keeping the app fully offline. */
+    .stApp { background-color: #0f0f12; color: #e0e0e0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; }
     [data-testid="stSidebar"] { background-color: #15151a; border-right: 1px solid #2d2d33; }
     h1, h2, h3, h4 { color: #ffffff !important; font-weight: 600; letter-spacing: -0.5px; }
 
@@ -196,16 +195,38 @@ def build_conversation_history(messages: list) -> List[str]:
 
 
 # ── Clipboard helper ──────────────────────────────────────────────────────────
+
+def _js_string(value: str) -> str:
+    """JSON-encode a string for safe embedding inside a <script> block.
+
+    Escapes '<', '>' and '&' so content like '</script>' or HTML tags cannot
+    break out of the script context, regardless of what the LLM produced.
+    """
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
 def copy_to_clipboard(text: str, label: str = "Copy Response") -> None:
     """Render a one-click copy-to-clipboard button using the browser JS clipboard API."""
-    safe_text = json.dumps(text)
     components.html(
-        f"""<button onclick="navigator.clipboard.writeText({safe_text}).then(function(){{
-                this.textContent='Copied!';
-                var b=this;
-                setTimeout(function(){{b.textContent='{label}';}},2000);
-            }}.bind(this));"
+        f"""<button id="copy-btn"
             style="background:#4a4a8a;color:white;border:none;padding:6px 14px;
-                   border-radius:6px;cursor:pointer;font-size:13px;">{label}</button>""",
+                   border-radius:6px;cursor:pointer;font-size:13px;"></button>
+<script>
+    var TEXT = {_js_string(text)};
+    var LABEL = {_js_string(label)};
+    var btn = document.getElementById('copy-btn');
+    btn.textContent = LABEL;
+    btn.addEventListener('click', function () {{
+        navigator.clipboard.writeText(TEXT).then(function () {{
+            btn.textContent = 'Copied!';
+            setTimeout(function () {{ btn.textContent = LABEL; }}, 2000);
+        }});
+    }});
+</script>""",
         height=42,
     )

@@ -47,7 +47,12 @@ from search import (
     run_academic_search,
     run_web_search,
 )
-from security import check_rate_limit, sanitize_error_message, sanitize_filename
+from security import (
+    check_rate_limit,
+    redact_secrets,
+    sanitize_error_message,
+    sanitize_filename,
+)
 from session import (
     cleanup_expired_sessions,
     create_new_session,
@@ -668,7 +673,7 @@ def main():
                     except Exception as e:
                         thinking_placeholder.empty()
                         stop_button_placeholder.empty()
-                        logger.error(f"Error processing request: {e}")
+                        logger.error(f"Error processing request: {redact_secrets(e)}")
                         st.error(f"Error: {sanitize_error_message(e)}")
                 else:
                     thinking_placeholder.empty()

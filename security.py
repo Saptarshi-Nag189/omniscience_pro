@@ -38,11 +38,15 @@ def sanitize_filename(filename: str) -> str:
 
 
 def validate_path_within_directory(path: Path, allowed_dir: Path) -> bool:
-    """Ensure a path is within an allowed directory (no symlink escape)."""
+    """Ensure a path is within an allowed directory (no symlink escape).
+
+    Uses component-wise comparison — a plain string prefix check would accept
+    sibling directories like 'uploads_evil' as being inside 'uploads'.
+    """
     try:
         resolved_path = path.resolve()
         resolved_allowed = allowed_dir.resolve()
-        return str(resolved_path).startswith(str(resolved_allowed))
+        return resolved_path.is_relative_to(resolved_allowed)
     except (OSError, ValueError):
         return False
 
@@ -69,18 +73,22 @@ def check_rate_limit(user_id: str = "default") -> bool:
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW_SECONDS
     try:
-        with _rl_conn() as conn:
-            conn.execute("DELETE FROM requests WHERE ts < ?", (window_start,))
-            count = conn.execute(
-                "SELECT COUNT(*) FROM requests WHERE user_id=? AND ts >= ?",
-                (user_id, window_start),
-            ).fetchone()[0]
-            if count >= RATE_LIMIT_REQUESTS:
-                return False
-            conn.execute(
-                "INSERT INTO requests(user_id, ts) VALUES (?,?)", (user_id, now)
-            )
-        return True
+        conn = _rl_conn()
+        try:
+            with conn:
+                conn.execute("DELETE FROM requests WHERE ts < ?", (window_start,))
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM requests WHERE user_id=? AND ts >= ?",
+                    (user_id, window_start),
+                ).fetchone()[0]
+                if count >= RATE_LIMIT_REQUESTS:
+                    return False
+                conn.execute(
+                    "INSERT INTO requests(user_id, ts) VALUES (?,?)", (user_id, now)
+                )
+            return True
+        finally:
+            conn.close()
     except Exception as e:
         logger.warning(f"Rate limit DB error (failing open): {e}")
         return True
@@ -114,3 +122,12 @@ def _redact_api_keys(text: str) -> str:
     for pat in _API_KEY_PATTERNS:
         text = pat.sub('[REDACTED]', text)
     return text
+
+
+def redact_secrets(text: str) -> str:
+    """Public redaction helper for log lines that may echo provider errors.
+
+    Some providers (e.g. OpenAI 401 responses) include the offending API key
+    in the error message — run any exception text through this before logging.
+    """
+    return _redact_api_keys(str(text))

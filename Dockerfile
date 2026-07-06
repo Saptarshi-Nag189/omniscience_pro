@@ -19,8 +19,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY *.py .
 COPY prompts.md .
 
-# Create directories for data persistence
-RUN mkdir -p db_omniscience chats uploads
+# Create directories for data persistence and drop root privileges.
+# uid 1000 matches the default first user on most host systems, so bind-mounted
+# volumes (./chats, ./uploads, ./db_omniscience) stay writable.
+RUN mkdir -p db_omniscience chats uploads \
+    && useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
 # Expose Streamlit port
 EXPOSE 8501

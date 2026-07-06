@@ -218,5 +218,6 @@ def build_chat_llm(provider_type: str, model: str, api_key: Optional[str] = None
         return chat | StrOutputParser()
 
     except Exception as e:
-        logger.warning(f"Failed to build LLM for {provider_type}: {e}")
+        from security import redact_secrets
+        logger.warning(f"Failed to build LLM for {provider_type}: {redact_secrets(e)}")
         return None

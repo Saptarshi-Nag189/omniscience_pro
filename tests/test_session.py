@@ -83,6 +83,19 @@ def test_cleanup_returns_zero_when_empty(tmp_chats, monkeypatch):
 
 # ── API keys must never be persisted to session files ────────────────────────
 
+def test_save_session_atomic_with_restricted_perms(tmp_chats):
+    """Session files are written via temp+rename, land with 0o600, no .tmp left."""
+    sid = "chat_20240101_130000_efgh5678"
+    save_session(sid, [{"role": "user", "content": "hi"}])
+
+    path = tmp_chats / f"{sid}.json"
+    assert path.exists()
+    assert (path.stat().st_mode & 0o777) == 0o600
+    data = json.loads(path.read_text())
+    assert data["messages"][0]["content"] == "hi"
+    assert not list(tmp_chats.glob("*.tmp"))
+
+
 def test_saved_session_contains_no_api_key(tmp_chats):
     """Only message role/content is persisted — provider keys live in memory only."""
     sid = "chat_20240101_120000_abcd1234"

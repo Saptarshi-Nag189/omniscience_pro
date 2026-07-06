@@ -221,13 +221,21 @@ def save_session(session_id: str, messages: list) -> None:
                 msg_copy["is_image_base64"] = True
             data["messages"].append(msg_copy)
 
-        with open(path, "w") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
+        # Atomic replace: write to a temp file (created 0o600) and rename over
+        # the target, so concurrent readers never observe a truncated file and
+        # the data is never on disk with default-umask permissions.
+        tmp_path = f"{path}.tmp"
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
                 json.dump(data, f)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        os.chmod(path, 0o600)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         logger.error(f"Error saving session {session_id}: {sanitize_error_message(e)}")
 
