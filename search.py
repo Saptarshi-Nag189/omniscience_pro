@@ -6,6 +6,8 @@ import urllib.request
 from datetime import datetime
 from typing import Optional
 
+from config import OPENALEX_MAILTO
+
 logger = logging.getLogger(__name__)
 
 # ── Optional dependency flags ─────────────────────────────────────────────────
@@ -162,9 +164,10 @@ def run_academic_search(query: str, max_results: int = 100,
             f"https://api.openalex.org/works?search={encoded}"
             f"&per_page={min(max_results, 100)}&sort=relevance_score:desc"
         )
-        req = urllib.request.Request(
-            url, headers={'User-Agent': 'OmnisciencePro/1.0 (mailto:user@example.com)'}
-        )
+        user_agent = 'OmnisciencePro/1.0'
+        if OPENALEX_MAILTO:
+            user_agent += f' (mailto:{OPENALEX_MAILTO})'
+        req = urllib.request.Request(url, headers={'User-Agent': user_agent})
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode())
             for work in data.get('results', []):

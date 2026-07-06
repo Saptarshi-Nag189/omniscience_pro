@@ -30,6 +30,9 @@ UPLOAD_DIR = os.environ.get('OMNISCIENCE_UPLOAD_DIR', './uploads')
 EMBEDDING_MODEL = os.environ.get('OMNISCIENCE_EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
 OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
 
+# Contact email for the OpenAlex "polite pool" (faster, more reliable API tier).
+OPENALEX_MAILTO = os.environ.get('OMNISCIENCE_OPENALEX_MAILTO', '')
+
 # ── Security limits ───────────────────────────────────────────────────────────
 MAX_FILE_SIZE_MB = _get_env_int('OMNISCIENCE_MAX_FILE_SIZE_MB', 10, 1, 100)
 MAX_FILES_PER_SCAN = _get_env_int('OMNISCIENCE_MAX_FILES_PER_SCAN', 1000, 10, 10000)
@@ -39,6 +42,7 @@ MAX_MESSAGES_PER_SESSION = _get_env_int('OMNISCIENCE_MAX_MESSAGES', 100, 10, 500
 SESSION_EXPIRY_HOURS = _get_env_int('OMNISCIENCE_SESSION_EXPIRY_HOURS', 24, 1, 168)
 SESSION_IDLE_TIMEOUT_HOURS = _get_env_int('OMNISCIENCE_IDLE_TIMEOUT_HOURS', 4, 1, 24)
 MAX_SESSIONS = _get_env_int('OMNISCIENCE_MAX_SESSIONS', 100, 10, 1000)
+UPLOAD_RETENTION_HOURS = _get_env_int('OMNISCIENCE_UPLOAD_RETENTION_HOURS', 24, 1, 720)
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 _RL_DB = os.path.join(DB_DIRECTORY, "rate_limits.db")

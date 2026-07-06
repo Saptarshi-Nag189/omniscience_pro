@@ -29,6 +29,7 @@ _KEYWORD_RE = re.compile(r'\b(' + '|'.join(re.escape(k) for k in _DANGEROUS_KEYW
 
 _QUERY_TIMEOUT = 5
 _MAX_ROWS = 1000
+_MAX_SCHEMA_CHARS = 4000
 
 
 def query_sqlite_db(db_path: str, query: str, llm) -> str:
@@ -51,8 +52,13 @@ def query_sqlite_db(db_path: str, query: str, llm) -> str:
                 lambda: 1 if time.monotonic() > deadline else 0, 10_000
             )
             cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            schema_str = str(cursor.fetchall())
+            # Full CREATE statements (not just table names) so the LLM knows the
+            # actual column names and types. Read-only metadata query; capped so
+            # a pathological schema can't blow up the prompt.
+            cursor.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL"
+            )
+            schema_str = "\n\n".join(row[0] for row in cursor.fetchall())[:_MAX_SCHEMA_CHARS]
 
             prompt = f"""Generate a SQLite SELECT query.
 
@@ -63,7 +69,7 @@ QUESTION:
 {query}
 
 RULES:
-- SELECT only
+- SELECT only (a WITH ... SELECT common-table-expression is also fine)
 - No INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, ATTACH, PRAGMA
 - Single statement
 - Simple query
@@ -73,7 +79,9 @@ Return ONLY the SQL query."""
             sql_query = llm.invoke(prompt).strip().replace("```sql", "").replace("```", "").strip()
             sql_upper = sql_query.upper().strip()
 
-            if not sql_upper.startswith('SELECT'):
+            # WITH ... SELECT (CTEs) are read-only and materially improve what
+            # the model can express; everything else non-SELECT stays blocked.
+            if not sql_upper.startswith(('SELECT', 'WITH')):
                 logger.warning(f"Blocked non-SELECT SQL query: {sql_query[:100]}")
                 return "Only SELECT queries are allowed for security reasons."
 
