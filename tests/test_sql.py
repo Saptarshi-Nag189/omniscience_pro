@@ -59,6 +59,37 @@ def test_allows_single_trailing_semicolon(tmp_db):
     assert "Alice" in result
 
 
+# ── CTE support and schema quality ───────────────────────────────────────────
+
+def test_allows_with_cte_select(tmp_db):
+    result = query_sqlite_db(
+        tmp_db, "cte",
+        FakeLLM("WITH u AS (SELECT * FROM users) SELECT name FROM u WHERE id=1"),
+    )
+    assert "Alice" in result
+
+
+def test_with_prefix_still_blocks_dangerous_keywords(tmp_db):
+    result = query_sqlite_db(
+        tmp_db, "sneaky",
+        FakeLLM("WITH u AS (SELECT 1) DELETE FROM users"),
+    )
+    assert "prohibited" in result.lower()
+
+
+def test_prompt_contains_column_schema(tmp_db):
+    """The LLM prompt must include full CREATE statements, not just table names."""
+    class RecordingLLM(FakeLLM):
+        def invoke(self, prompt):
+            self.prompt = prompt
+            return self._sql
+
+    llm = RecordingLLM("SELECT * FROM users")
+    query_sqlite_db(tmp_db, "list", llm)
+    assert "CREATE TABLE" in llm.prompt
+    assert "name TEXT" in llm.prompt
+
+
 # ── Identifiers that merely contain a keyword substring must NOT be blocked ───
 
 def test_allows_identifier_containing_keyword_substring(tmp_db, monkeypatch):

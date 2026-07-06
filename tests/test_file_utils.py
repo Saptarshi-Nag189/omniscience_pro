@@ -59,3 +59,33 @@ def test_scan_empty_path_warns(monkeypatch):
     calls = _capture_warnings(monkeypatch)
     assert file_utils.scan_directory("  ") == []
     assert calls  # warned about invalid path
+
+
+# ── Upload retention cleanup ─────────────────────────────────────────────────
+
+def _make_upload(dirpath, name, age_hours):
+    import os
+    import time
+    p = dirpath / name
+    p.write_text("data")
+    past = time.time() - age_hours * 3600
+    os.utime(p, (past, past))
+    return p
+
+
+def test_cleanup_removes_old_uploads(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_utils, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(file_utils, "UPLOAD_RETENTION_HOURS", 24)
+
+    old = _make_upload(tmp_path, "old.pdf", age_hours=48)
+    fresh = _make_upload(tmp_path, "fresh.txt", age_hours=1)
+
+    removed = file_utils.cleanup_old_uploads()
+    assert removed == 1
+    assert not old.exists()
+    assert fresh.exists()
+
+
+def test_cleanup_handles_missing_dir(monkeypatch):
+    monkeypatch.setattr(file_utils, "UPLOAD_DIR", "/nonexistent/upload/dir")
+    assert file_utils.cleanup_old_uploads() == 0

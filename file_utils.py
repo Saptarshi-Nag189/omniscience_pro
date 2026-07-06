@@ -1,6 +1,7 @@
 """File reading, upload processing, and directory scanning."""
 import logging
 import os
+import time
 from pathlib import Path
 from typing import List
 
@@ -17,6 +18,7 @@ from config import (
     MAX_FILE_SIZE_MB,
     MAX_FILES_PER_SCAN,
     UPLOAD_DIR,
+    UPLOAD_RETENTION_HOURS,
 )
 from security import sanitize_filename, validate_path_within_directory
 
@@ -38,9 +40,12 @@ SUPPORTED_EXTENSIONS = {
 def read_file_content(file_path: Path) -> str:
     """Read text content from a file with size guard and multi-encoding fallback."""
     try:
-        if file_path.stat().st_size > 1_000_000:
+        # Align with the upload limit — a file that passed the MAX_FILE_SIZE_MB
+        # check must not be silently dropped here by a smaller hidden cap.
+        if file_path.stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            logger.info(f"Skipping {file_path.name}: exceeds {MAX_FILE_SIZE_MB} MB limit")
             return ""
-        if file_path.suffix == '.pdf':
+        if file_path.suffix.lower() == '.pdf':
             with open(file_path, 'rb') as f:
                 reader = pypdf.PdfReader(f)
                 return "\n".join(page.extract_text() or "" for page in reader.pages)
@@ -57,7 +62,7 @@ def read_file_content(file_path: Path) -> str:
 
 def get_text_splitter(file_ext: str) -> RecursiveCharacterTextSplitter:
     """Return a language-aware text splitter for the given file extension."""
-    language = SUPPORTED_EXTENSIONS.get(file_ext)
+    language = SUPPORTED_EXTENSIONS.get(file_ext.lower())
     if language and language != 'pdf':
         try:
             return RecursiveCharacterTextSplitter.from_language(
@@ -110,6 +115,30 @@ def process_uploaded_files(uploaded_files) -> List[Document]:
     return documents
 
 
+def cleanup_old_uploads() -> int:
+    """Remove uploaded files older than UPLOAD_RETENTION_HOURS.
+
+    Sessions get expiry cleanup; without this, uploads/ grows forever (slow
+    disk leak and a privacy tail of stale user documents). Called on startup.
+    Returns the number of files removed.
+    """
+    if not os.path.isdir(UPLOAD_DIR):
+        return 0
+
+    removed = 0
+    cutoff = time.time() - UPLOAD_RETENTION_HOURS * 3600
+    for name in os.listdir(UPLOAD_DIR):
+        path = os.path.join(UPLOAD_DIR, name)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+                logger.info(f"Removed expired upload: {name}")
+        except OSError as e:
+            logger.warning(f"Could not clean upload {name}: {e}")
+    return removed
+
+
 def scan_directory(root_path: str) -> List[Document]:
     """Recursively scan a directory for supported files, with security limits."""
     if not root_path or not root_path.strip():
@@ -141,7 +170,8 @@ def scan_directory(root_path: str) -> List[Document]:
             if file in IGNORED_FILES:
                 continue
             fp = Path(file)
-            if fp.suffix not in SUPPORTED_EXTENSIONS or fp.suffix in IGNORED_FILE_EXTENSIONS:
+            suffix = fp.suffix.lower()
+            if suffix not in SUPPORTED_EXTENSIONS or suffix in IGNORED_FILE_EXTENSIONS:
                 continue
             file_path = Path(current_root) / file
             if validate_path_within_directory(file_path, root):

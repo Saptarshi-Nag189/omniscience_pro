@@ -10,12 +10,18 @@ streaming-via-callback behaviour is uniform across backends, so the rest of the
 app (chat, SQL, academic extraction) needs no per-provider branching.
 """
 import importlib.util
+import json
 import logging
+import os
 from typing import Optional
 
 from config import OLLAMA_BASE_URL
 
 logger = logging.getLogger(__name__)
+
+# Optional catalogue override file — lets users refresh model lists (new model
+# ids, ratings, tags) without touching code. See apply_catalogue_overrides().
+MODELS_FILE = os.environ.get('OMNISCIENCE_MODELS_FILE', 'models.json')
 
 
 # ── Optional dependency detection ─────────────────────────────────────────────
@@ -129,6 +135,50 @@ PROVIDERS = {
 
 # Provider types that can analyse images.
 _VISION_CAPABLE = {"ollama", "openai", "anthropic", "google", "custom_openai"}
+
+
+def _normalize_model_entry(entry) -> Optional[dict]:
+    """Coerce a models.json entry (str or dict) into catalogue shape."""
+    if isinstance(entry, str):
+        return _m(entry, 3)
+    if isinstance(entry, dict) and entry.get("id"):
+        stars = entry.get("stars", 3)
+        stars = stars if isinstance(stars, int) and 1 <= stars <= 5 else 3
+        tags = [str(t) for t in entry.get("tags", []) if t]
+        return {"id": str(entry["id"]), "stars": stars, "tags": tags}
+    return None
+
+
+def apply_catalogue_overrides(data: dict) -> None:
+    """Replace provider model lists from a models.json-style mapping.
+
+    Shape: {"OpenAI (ChatGPT)": {"models": [...], "vision_models": [...]}, ...}
+    Entries may be plain model-id strings or {"id", "stars", "tags"} dicts.
+    Unknown providers and malformed entries are skipped — the catalogue is
+    advisory, so a bad override degrades to the built-in defaults.
+    """
+    for provider_name, lists in data.items():
+        if provider_name not in PROVIDERS or not isinstance(lists, dict):
+            logger.warning(f"models.json: skipping unknown provider {provider_name!r}")
+            continue
+        for key in ("models", "vision_models"):
+            if key in lists and isinstance(lists[key], list):
+                normalized = [_normalize_model_entry(e) for e in lists[key]]
+                PROVIDERS[provider_name][key] = [m for m in normalized if m]
+
+
+def _load_catalogue_overrides() -> None:
+    """Load MODELS_FILE if present; failures never block startup."""
+    try:
+        if os.path.isfile(MODELS_FILE):
+            with open(MODELS_FILE) as f:
+                apply_catalogue_overrides(json.load(f))
+            logger.info(f"Applied model catalogue overrides from {MODELS_FILE}")
+    except Exception as e:
+        logger.warning(f"Ignoring invalid models file {MODELS_FILE}: {e}")
+
+
+_load_catalogue_overrides()
 
 
 def format_model_label(meta: dict) -> str:

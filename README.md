@@ -160,7 +160,41 @@ export OMNISCIENCE_UPLOAD_DIR="./uploads"        # Uploaded files location
 export OPENAI_API_KEY="sk-..."        # OpenAI (ChatGPT)
 export ANTHROPIC_API_KEY="sk-ant-..." # Anthropic (Claude)
 export GOOGLE_API_KEY="AIza..."       # Google (Gemini)
+
+# Housekeeping and etiquette (optional)
+export OMNISCIENCE_UPLOAD_RETENTION_HOURS=24   # Delete uploads older than this (default 24)
+export OMNISCIENCE_OPENALEX_MAILTO="you@example.com"  # OpenAlex polite-pool contact
+export OMNISCIENCE_MODELS_FILE="models.json"   # Model catalogue override (see below)
 ```
+
+### Custom model catalogue (`models.json`)
+
+Cloud model IDs change over time. Drop a `models.json` next to the app (or point
+`OMNISCIENCE_MODELS_FILE` at one) to refresh the selector without touching code:
+
+```json
+{
+  "OpenAI (ChatGPT)": {
+    "models": [
+      {"id": "gpt-5", "stars": 5, "tags": ["New", "Flagship"]},
+      "gpt-4o-mini"
+    ]
+  }
+}
+```
+
+Entries may be plain model-id strings (defaults: 3 stars, no tags) or
+`{"id", "stars", "tags"}` objects. Unknown providers and malformed entries are
+skipped; a broken file falls back to the built-in defaults.
+
+## Security posture
+
+Omniscience Pro is designed as a **single-user, localhost app**. There is no
+authentication and rate limiting is global, not per-user. If you ever expose it
+beyond `127.0.0.1` (e.g. bind `0.0.0.0` on a shared network), put it behind a
+reverse proxy that adds authentication (e.g. nginx + basic auth, Tailscale,
+or an SSO proxy) — otherwise anyone who can reach the port can read your
+indexed documents and chat history.
 
 ## Testing
 
@@ -169,7 +203,9 @@ export GOOGLE_API_KEY="AIza..."       # Google (Gemini)
 pytest tests/ -v
 ```
 
-Covers 31 tests across three modules: security sanitizers, persistent rate limiter, session cleanup, and SQL keyword blocking.
+97 tests cover the security sanitizers, persistent rate limiter, session
+lifecycle, SQL guardrails (including runaway-query abort), provider factory,
+catalogue overrides, upload cleanup, and vision dispatch.
 
 ## Deployment Options
 

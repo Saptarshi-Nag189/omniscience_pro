@@ -140,3 +140,78 @@ def test_build_failure_is_swallowed(monkeypatch):
     monkeypatch.setitem(sys.modules, "langchain_openai", mod)
 
     assert build_chat_llm("openai", "gpt-4o", api_key="k") is None
+
+
+# ── models.json catalogue overrides ───────────────────────────────────────────
+
+def test_catalogue_override_replaces_models(monkeypatch):
+    import providers
+    monkeypatch.setitem(
+        providers.PROVIDERS, "OpenAI (ChatGPT)",
+        dict(providers.PROVIDERS["OpenAI (ChatGPT)"]),
+    )
+    providers.apply_catalogue_overrides({
+        "OpenAI (ChatGPT)": {
+            "models": [
+                {"id": "gpt-5", "stars": 5, "tags": ["New"]},
+                "gpt-4o-mini",  # plain string → defaults
+            ],
+        },
+    })
+    models = providers.PROVIDERS["OpenAI (ChatGPT)"]["models"]
+    assert [m["id"] for m in models] == ["gpt-5", "gpt-4o-mini"]
+    assert models[0]["stars"] == 5 and models[0]["tags"] == ["New"]
+    assert models[1]["stars"] == 3 and models[1]["tags"] == []
+
+
+def test_catalogue_override_skips_unknown_and_malformed(monkeypatch):
+    import providers
+    before = providers.PROVIDERS["Google (Gemini)"]["models"]
+    providers.apply_catalogue_overrides({
+        "Nonexistent Provider": {"models": ["x"]},
+        "Google (Gemini)": "not-a-dict",
+    })
+    assert providers.PROVIDERS["Google (Gemini)"]["models"] == before
+
+
+def test_catalogue_override_drops_bad_entries(monkeypatch):
+    import providers
+    monkeypatch.setitem(
+        providers.PROVIDERS, "Anthropic (Claude)",
+        dict(providers.PROVIDERS["Anthropic (Claude)"]),
+    )
+    providers.apply_catalogue_overrides({
+        "Anthropic (Claude)": {
+            "models": [{"no_id": True}, 42, {"id": "claude-x", "stars": 99}],
+        },
+    })
+    models = providers.PROVIDERS["Anthropic (Claude)"]["models"]
+    assert [m["id"] for m in models] == ["claude-x"]
+    assert models[0]["stars"] == 3  # out-of-range stars clamped to default
+
+
+def test_load_catalogue_from_file(tmp_path, monkeypatch):
+    import json as _json
+
+    import providers
+    monkeypatch.setitem(
+        providers.PROVIDERS, "OpenAI (ChatGPT)",
+        dict(providers.PROVIDERS["OpenAI (ChatGPT)"]),
+    )
+    mf = tmp_path / "models.json"
+    mf.write_text(_json.dumps({"OpenAI (ChatGPT)": {"models": ["my-model"]}}))
+    monkeypatch.setattr(providers, "MODELS_FILE", str(mf))
+
+    providers._load_catalogue_overrides()
+    assert providers.PROVIDERS["OpenAI (ChatGPT)"]["models"][0]["id"] == "my-model"
+
+
+def test_invalid_models_file_is_ignored(tmp_path, monkeypatch):
+    import providers
+    mf = tmp_path / "models.json"
+    mf.write_text("{invalid json")
+    monkeypatch.setattr(providers, "MODELS_FILE", str(mf))
+    before = {k: v["models"] for k, v in providers.PROVIDERS.items()}
+
+    providers._load_catalogue_overrides()  # must not raise
+    assert {k: v["models"] for k, v in providers.PROVIDERS.items()} == before
