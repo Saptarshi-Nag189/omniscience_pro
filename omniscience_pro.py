@@ -23,11 +23,16 @@ import streamlit as st
 
 from config import DB_DIRECTORY, MAX_FILE_SIZE_MB, UPLOAD_DIR
 from file_utils import process_uploaded_files, scan_directory
+from providers import (
+    PROVIDERS,
+    build_chat_llm,
+    format_model_label,
+    provider_available,
+)
 from rag_core import (
     delete_file_from_db,
     fuzzy_match_filenames,
     get_all_filenames,
-    get_llm_for_chain,
     get_loaded_documents,
     ingest_documents,
     initialize_vectorstore,
@@ -42,7 +47,12 @@ from search import (
     run_academic_search,
     run_web_search,
 )
-from security import check_rate_limit, sanitize_error_message, sanitize_filename
+from security import (
+    check_rate_limit,
+    redact_secrets,
+    sanitize_error_message,
+    sanitize_filename,
+)
 from session import (
     cleanup_expired_sessions,
     create_new_session,
@@ -158,6 +168,18 @@ RULES:
 - If the sources do not answer the question, say so clearly
 
 ANSWER:"""
+
+
+def _make_llm(callback=None):
+    """Build the chat LLM from the current sidebar provider/model selection."""
+    sel = st.session_state.get("llm_selection", {})
+    return build_chat_llm(
+        sel.get("type", "ollama"),
+        sel.get("model", ""),
+        api_key=sel.get("api_key"),
+        base_url=sel.get("base_url"),
+        callback=callback,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -289,18 +311,72 @@ def main():
 
         st.markdown("---")
 
-        available_models = list_ollama_models()
+        st.markdown("#### MODEL")
+        is_vision_mode = mode == "Vision (Images)"
 
-        if mode == "Vision (Images)":
-            model_options = ["llava:7b", "llama3.2-vision"]
-            model_name = st.selectbox("Vision Model", options=model_options, index=0)
-            st.info(f"Using Vision Model: {model_name}")
+        provider_name = st.selectbox("Provider", list(PROVIDERS.keys()), index=0)
+        pconf = PROVIDERS[provider_name]
+        provider_type = pconf["type"]
+
+        if not provider_available(provider_name):
+            st.warning(f"{provider_name} needs: `pip install {pconf['pip']}`")
+
+        # Model picker — catalogue entries are advisory (stars + tags); users can
+        # always type a custom model id via the "Custom model…" sentinel.
+        catalogue = pconf["vision_models"] if is_vision_mode else pconf["models"]
+        _CUSTOM = "✏️ Custom model…"
+        if catalogue:
+            ids = [m["id"] for m in catalogue]
+            meta_by_id = {m["id"]: m for m in catalogue}
+            choice = st.selectbox(
+                "Vision Model" if is_vision_mode else "Model",
+                options=ids + [_CUSTOM],
+                index=0,
+                format_func=lambda x: x if x == _CUSTOM else format_model_label(meta_by_id[x]),
+            )
+            model_name = st.text_input("Custom model name", value="").strip() if choice == _CUSTOM else choice
         else:
-            model_options = ["qwen3:4b", "qwen2.5-coder:7b", "qwen2.5-coder:1.5b", "llama3.2:3b", "mistral:7b"]
-            model_name = st.selectbox("Model", options=model_options, index=1)
+            model_name = st.text_input(
+                "Vision Model" if is_vision_mode else "Model name", value="",
+                placeholder="e.g. gpt-4o or your custom model",
+            ).strip()
 
-        if available_models and model_name not in available_models:
-            st.warning(f"Model **{model_name}** not found in Ollama. Run: `ollama pull {model_name}`")
+        # API key — kept in-memory only (never written to session files / logs).
+        api_key = None
+        if pconf["needs_key"]:
+            env_name = pconf.get("env")
+            env_key = os.environ.get(env_name, "") if env_name else ""
+            typed_key = st.text_input(
+                f"{provider_name} API Key", type="password",
+                help=f"Or set the {env_name} environment variable." if env_name else None,
+            )
+            api_key = typed_key or env_key
+            if not typed_key and env_key:
+                st.caption(f"Using key from `{env_name}` environment variable.")
+            if not api_key:
+                st.warning("Enter an API key to use this provider.")
+
+        base_url = None
+        if pconf["needs_base_url"]:
+            base_url = st.text_input(
+                "Base URL", value="",
+                placeholder="https://api.example.com/v1",
+                help="OpenAI-compatible endpoint (Groq, OpenRouter, vLLM, LM Studio, …).",
+            ).strip() or None
+
+        st.session_state.llm_selection = {
+            "provider_name": provider_name,
+            "type": provider_type,
+            "model": model_name,
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+
+        # Local Ollama: warn when the chosen model isn't pulled yet.
+        if provider_type == "ollama" and model_name:
+            available_models = list_ollama_models()
+            if available_models and model_name not in available_models:
+                st.warning(f"Model **{model_name}** not found in Ollama. Run: `ollama pull {model_name}`")
 
         if mode == "Chat (RAG)":
             st.markdown("#### DATA SOURCE")
@@ -426,7 +502,14 @@ def main():
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing image..."):
-                    response_content = process_vision_request(BytesWrapper(image_bytes), prompt_text, model_name)
+                    sel = st.session_state.get("llm_selection", {})
+                    response_content = process_vision_request(
+                        BytesWrapper(image_bytes), prompt_text,
+                        model_name=sel.get("model", "llava"),
+                        provider_type=sel.get("type", "ollama"),
+                        api_key=sel.get("api_key"),
+                        base_url=sel.get("base_url"),
+                    )
                     st.markdown(response_content)
                     st.session_state.messages.append({"role": "assistant", "content": response_content})
                     save_session(st.session_state.current_session, st.session_state.messages)
@@ -452,7 +535,7 @@ def main():
 
                 response_placeholder = st.empty()
                 stream_handler = StreamHandler(response_placeholder, thinking_placeholder=thinking_placeholder)
-                llm = get_llm_for_chain(model_name, stream_handler)
+                llm = _make_llm(stream_handler)
 
                 response_content = ""
                 sources = []
@@ -509,7 +592,7 @@ def main():
                                 sources = list(set([doc.metadata.get('source', 'Unknown') for doc in retrieved_docs]))
 
                                 if st.session_state.academic_search_enabled:
-                                    extraction_llm = get_llm_for_chain(model_name, None)
+                                    extraction_llm = _make_llm()
                                     academic_results = run_academic_search(
                                         prompt, rag_context=rag_context, llm=extraction_llm
                                     )
@@ -590,12 +673,18 @@ def main():
                     except Exception as e:
                         thinking_placeholder.empty()
                         stop_button_placeholder.empty()
-                        logger.error(f"Error processing request: {e}")
+                        logger.error(f"Error processing request: {redact_secrets(e)}")
                         st.error(f"Error: {sanitize_error_message(e)}")
                 else:
                     thinking_placeholder.empty()
                     stop_button_placeholder.empty()
-                    st.error("Failed to load the model. Please check if Ollama is running and the model is installed.")
+                    sel = st.session_state.get("llm_selection", {})
+                    if sel.get("type") == "ollama":
+                        st.error("Failed to load the model. Please check if Ollama is running and the model is installed.")
+                    elif not sel.get("api_key"):
+                        st.error("Failed to load the model. Please enter a valid API key for the selected provider.")
+                    else:
+                        st.error("Failed to load the model. Check the provider package is installed, the model name, and your API key.")
 
 
 if __name__ == "__main__":

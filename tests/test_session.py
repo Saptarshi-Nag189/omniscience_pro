@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 
 import session
-from session import cleanup_expired_sessions
+from session import cleanup_expired_sessions, save_session
 
 
 def _write_session(chats_dir, name, age_seconds):
@@ -79,6 +79,35 @@ def test_cleanup_returns_zero_when_empty(tmp_chats, monkeypatch):
     monkeypatch.setattr(session, "SESSION_IDLE_TIMEOUT_HOURS", 999)
     monkeypatch.setattr(session, "MAX_SESSIONS", 1000)
     assert cleanup_expired_sessions() == 0
+
+
+# ── API keys must never be persisted to session files ────────────────────────
+
+def test_save_session_atomic_with_restricted_perms(tmp_chats):
+    """Session files are written via temp+rename, land with 0o600, no .tmp left."""
+    sid = "chat_20240101_130000_efgh5678"
+    save_session(sid, [{"role": "user", "content": "hi"}])
+
+    path = tmp_chats / f"{sid}.json"
+    assert path.exists()
+    assert (path.stat().st_mode & 0o777) == 0o600
+    data = json.loads(path.read_text())
+    assert data["messages"][0]["content"] == "hi"
+    assert not list(tmp_chats.glob("*.tmp"))
+
+
+def test_saved_session_contains_no_api_key(tmp_chats):
+    """Only message role/content is persisted — provider keys live in memory only."""
+    sid = "chat_20240101_120000_abcd1234"
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi there", "sources": ["a.py"]},
+    ]
+    save_session(sid, messages)
+
+    raw = (tmp_chats / f"{sid}.json").read_text()
+    assert "api_key" not in raw
+    assert "sk-" not in raw
 
 
 # ── expiry (creation time) and idle (mtime) are independent signals ──────────

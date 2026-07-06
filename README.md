@@ -18,14 +18,26 @@ A local RAG (Retrieval-Augmented Generation) system with web search, academic re
 - 📋 **Real Clipboard Copy**: One-click copy of responses via browser clipboard API
 - 🧩 **Modular Architecture**: 10 focused modules for easy navigation and extension
 
-### Supported Models
+### Model providers
 
-The following models are supported out-of-the-box *(requires download via Ollama)*:
+Pick a provider in the sidebar **Model** selector. Local Ollama is the default and needs no API key; cloud providers prompt for a key (kept in memory only — never written to disk or logs). Each provider lists recommended models with ★ ratings and tags; you can also type any model name, including custom/OpenAI-compatible endpoints.
+
+| Provider | Key required | Notes |
+| -------- | ------------ | ----- |
+| **Ollama (Local)** | No | Default, fully offline. Models below. |
+| **OpenAI (ChatGPT)** | Yes | `gpt-4o`, `gpt-4o-mini`, … — needs `pip install langchain-openai` |
+| **Anthropic (Claude)** | Yes | `claude-3-5-sonnet-latest`, … — needs `pip install langchain-anthropic` |
+| **Google (Gemini)** | Yes | `gemini-2.0-flash`, `gemini-1.5-pro`, … — needs `pip install langchain-google-genai` |
+| **Custom (OpenAI-compatible)** | Yes | Any OpenAI-style endpoint (Groq, OpenRouter, vLLM, LM Studio): supply base URL + model + key |
+
+Cloud SDKs are **optional** — the app runs on the Ollama-only stack unchanged; uninstalled providers simply show a `pip install` hint. Keys may also be provided via the `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` environment variables. The selected provider applies to Chat/RAG, SQL, academic extraction, and Vision modes.
+
+**Local Ollama models** *(requires download via Ollama)*:
 
 | Model | Type | Size | Use Case |
 | ----- | ---- | ---- | -------- |
-| `qwen3:4b` | Chat | 4B | Recommended general purpose |
-| `qwen2.5-coder:7b` | Chat | 7B | Code-focused |
+| `qwen2.5-coder:7b` | Chat | 7B | Recommended, code-focused |
+| `qwen3:4b` | Chat | 4B | Balanced general purpose |
 | `qwen2.5-coder:1.5b` | Chat | 1.5B | Lightweight, fast |
 | `llama3.2:3b` | Chat | 3B | General purpose |
 | `mistral:7b` | Chat | 7B | Alternative general |
@@ -41,10 +53,11 @@ The following models are supported out-of-the-box *(requires download via Ollama
 | `security.py` | Input sanitizers, path validation, persistent rate limiter |
 | `session.py` | Chat session load/save/cleanup with file locking |
 | `file_utils.py` | File reading, chunking, directory scanning |
-| `rag_core.py` | Embeddings, LLM loader, ChromaDB vectorstore |
+| `rag_core.py` | Embeddings, ChromaDB vectorstore, query parsing |
+| `providers.py` | LLM provider catalogue + factory (Ollama + OpenAI/Anthropic/Google/custom) |
 | `search.py` | Web + academic search (DuckDuckGo / Semantic Scholar / arXiv / OpenAlex) |
 | `sql_mode.py` | Natural-language → SQL with read-only SQLite enforcement |
-| `vision.py` | Image analysis via Ollama multimodal endpoint |
+| `vision.py` | Image analysis via Ollama or cloud multimodal models |
 | `ui_components.py` | CSS theme, streaming handler, clipboard helper |
 
 ## Prerequisites
@@ -142,6 +155,11 @@ export OLLAMA_BASE_URL="http://127.0.0.1:11434"  # Ollama server URL
 export OMNISCIENCE_DB_DIR="./db_omniscience"     # Vector DB location
 export OMNISCIENCE_CHATS_DIR="./chats"           # Chat history location
 export OMNISCIENCE_UPLOAD_DIR="./uploads"        # Uploaded files location
+
+# Optional cloud-provider API keys (or enter them in the sidebar)
+export OPENAI_API_KEY="sk-..."        # OpenAI (ChatGPT)
+export ANTHROPIC_API_KEY="sk-ant-..." # Anthropic (Claude)
+export GOOGLE_API_KEY="AIza..."       # Google (Gemini)
 ```
 
 ## Testing

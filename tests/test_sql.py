@@ -1,6 +1,16 @@
 
+import pytest
+
 import security
 from sql_mode import query_sqlite_db
+
+
+@pytest.fixture(autouse=True)
+def _isolate_rate_limit(tmp_rl_db, monkeypatch):
+    """Isolate every SQL test from the shared rate-limit DB so repeated suite
+    runs within the 60s window don't exhaust the quota and turn the blocking
+    assertions flaky."""
+    monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
 
 
 class FakeLLM:
@@ -37,6 +47,16 @@ def test_blocks_pragma(tmp_db):
 def test_blocks_comment_injection(tmp_db):
     result = query_sqlite_db(tmp_db, "comment", FakeLLM("SELECT * FROM users -- comment"))
     assert "prohibited" in result.lower()
+
+
+def test_blocks_second_statement_single_semicolon(tmp_db):
+    result = query_sqlite_db(tmp_db, "two", FakeLLM("SELECT 1; SELECT 2"))
+    assert "Multiple SQL statements" in result
+
+
+def test_allows_single_trailing_semicolon(tmp_db):
+    result = query_sqlite_db(tmp_db, "list", FakeLLM("SELECT * FROM users;"))
+    assert "Alice" in result
 
 
 # ── Identifiers that merely contain a keyword substring must NOT be blocked ───
@@ -90,6 +110,28 @@ def test_valid_select_with_limit(tmp_db, monkeypatch):
     monkeypatch.setattr(security, "RATE_LIMIT_REQUESTS", 1000)
     result = query_sqlite_db(tmp_db, "first user", FakeLLM("SELECT * FROM users LIMIT 1"))
     assert "SQL:" in result
+
+
+# ── Runaway query is aborted by the progress-handler deadline ────────────────
+
+def test_runaway_query_hits_timeout(tmp_path, monkeypatch):
+    import sqlite3
+
+    import sql_mode
+
+    db = tmp_path / "big.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE t (n INTEGER)")
+    conn.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(1000)])
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(sql_mode, "_QUERY_TIMEOUT", 0.2)
+    # 1000^3 = 1e9 rows scanned — impossible within 0.2s, must be interrupted.
+    result = query_sqlite_db(
+        str(db), "explode", FakeLLM("SELECT count(*) FROM t a, t b, t c")
+    )
+    assert "timeout" in result.lower()
 
 
 # ── Bad DB path ───────────────────────────────────────────────────────────────

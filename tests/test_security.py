@@ -5,6 +5,7 @@ import pytest
 import security
 from security import (
     check_rate_limit,
+    sanitize_error_message,
     sanitize_filename,
     sanitize_session_id,
     validate_path_within_directory,
@@ -75,6 +76,55 @@ def test_validate_path_rejects_outside(tmp_path):
 def test_validate_path_rejects_parent_escape(tmp_path):
     escaped = tmp_path / ".." / "outside.txt"
     assert validate_path_within_directory(escaped, tmp_path) is False
+
+
+def test_validate_path_rejects_sibling_prefix_dir(tmp_path):
+    """'uploads_evil' must not pass as inside 'uploads' (string-prefix bypass)."""
+    allowed = tmp_path / "uploads"
+    allowed.mkdir()
+    evil = tmp_path / "uploads_evil"
+    evil.mkdir()
+    assert validate_path_within_directory(evil / "x.txt", allowed) is False
+
+
+# ── sanitize_error_message redacts API keys ─────────────────────────────────
+
+def test_redacts_openai_key():
+    out = sanitize_error_message(Exception("Auth failed for sk-abc0123456789XYZ token"))
+    assert "sk-abc0123456789XYZ" not in out
+    assert "[REDACTED]" in out
+
+
+def test_redacts_anthropic_key():
+    out = sanitize_error_message(Exception("invalid key sk-ant-api03-AAAABBBBcccc"))
+    assert "sk-ant" not in out
+    assert "[REDACTED]" in out
+
+
+def test_redacts_google_key():
+    out = sanitize_error_message(Exception("bad request AIzaSyA1234567890abcdEFG"))
+    assert "AIzaSy" not in out
+    assert "[REDACTED]" in out
+
+
+def test_redacts_bearer_token():
+    out = sanitize_error_message(Exception("header Bearer abcdEFGH12345678 rejected"))
+    assert "abcdEFGH12345678" not in out
+    assert "[REDACTED]" in out
+
+
+def test_non_secret_error_untouched():
+    out = sanitize_error_message(Exception("model not found"))
+    assert "model not found" in out
+
+
+def test_redact_secrets_public_helper():
+    from security import redact_secrets
+    out = redact_secrets("401: Incorrect API key provided: sk-proj0123456789abcdef")
+    assert "sk-proj" not in out
+    assert "[REDACTED]" in out
+    # accepts exceptions too
+    assert "[REDACTED]" in redact_secrets(Exception("key AIzaSyB1234567890xyz rejected"))
 
 
 # ── check_rate_limit (SQLite-backed) ────────────────────────────────────────

@@ -121,8 +121,13 @@ def scan_directory(root_path: str) -> List[Document]:
         return []
 
     root_resolved = root.resolve()
-    sensitive = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/boot', '/sys', '/proc']
-    if any(str(root_resolved).startswith(p) for p in sensitive):
+    # Component-wise containment (not string prefix): '/etcetera' must not match
+    # '/etc', and scanning '/' itself would walk every system directory below.
+    sensitive = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/boot',
+                 '/sys', '/proc', '/dev', '/run']
+    if str(root_resolved) == '/' or any(
+        root_resolved.is_relative_to(p) for p in sensitive
+    ):
         st.warning("Cannot scan system directories for security reasons")
         return []
 

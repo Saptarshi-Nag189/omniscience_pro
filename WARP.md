@@ -238,17 +238,21 @@ When extending the RAG pipeline (e.g., new file types or metadata):
 
 ### External tools and integrations
 
-#### LLM backends (Ollama)
+#### LLM backends (Ollama + optional cloud providers)
 
-- `get_llm_for_chain` (in `rag_core.py`) instantiates an `OllamaLLM` with optional streaming callbacks. No startup health-check is performed — Ollama errors surface as UI error messages on the first request.
-- Different model choices are exposed in the UI depending on mode:
-  - General chat models for Chat/RAG.
-  - Vision-capable models for Vision/Image mode.
+- `providers.build_chat_llm(provider_type, model, api_key, base_url, callback)` (in `providers.py`) constructs the chat model. It dispatches to:
+  - **Ollama (Local)** — `OllamaLLM`, the default, no API key required.
+  - **OpenAI (ChatGPT)**, **Anthropic (Claude)**, **Google (Gemini)** — via `langchain-openai` / `langchain-anthropic` / `langchain-google-genai` (optional installs).
+  - **Custom (OpenAI-compatible)** — any OpenAI-style endpoint (Groq, OpenRouter, vLLM, LM Studio, …) via a user-supplied base URL + model + key.
+- Cloud chat models return an `AIMessage`; `build_chat_llm` pipes them through `StrOutputParser()` so every backend exposes a uniform `.invoke(prompt) -> str`. Streaming works across all backends via the `StreamHandler` callback. No startup health-check is performed — errors surface as UI messages on the first request.
+- `providers.PROVIDERS` is the catalogue: each provider lists recommended models with star ratings (1–5) and tags (e.g. "Recommended", "Vision", "Fast"). The catalogue is advisory — users can type any model name. Cloud SDKs are imported lazily, so an Ollama-only install runs unchanged; missing packages disable that provider in the UI with a `pip install` hint.
+- **API keys are kept in `st.session_state` only** — never written to `chats/*.json` or logs. They can also be supplied via the `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` environment variables. `sanitize_error_message` redacts key-shaped tokens from any surfaced error.
+- The selected provider applies to all LLM-driven modes: Chat/RAG, academic keyword extraction, SQL generation, and Vision (cloud providers use multimodal message content; Ollama uses its `/api/generate` endpoint).
 
 If you change model names or add new ones:
 
-- Update the model selection logic in `omniscience_pro.py`.
-- Ensure your local Ollama environment has those models pulled (`ollama pull <model>`).
+- Update the `PROVIDERS` catalogue in `providers.py` (the `_m(id, stars, *tags)` helper).
+- For Ollama, ensure your local environment has those models pulled (`ollama pull <model>`).
 
 #### Web search (optional)
 

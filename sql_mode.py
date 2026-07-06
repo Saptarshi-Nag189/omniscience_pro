@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sqlite3
+import time
 
 from security import check_rate_limit, sanitize_error_message
 
@@ -42,6 +43,13 @@ def query_sqlite_db(db_path: str, query: str, llm) -> str:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=_QUERY_TIMEOUT)
         try:
             conn.execute("PRAGMA query_only = ON")
+            # The connect() timeout only bounds lock waits — a runaway query
+            # (e.g. a huge cross join) would otherwise hang the UI forever.
+            # The progress handler aborts execution once the deadline passes.
+            deadline = time.monotonic() + _QUERY_TIMEOUT
+            conn.set_progress_handler(
+                lambda: 1 if time.monotonic() > deadline else 0, 10_000
+            )
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             schema_str = str(cursor.fetchall())
@@ -80,7 +88,9 @@ Return ONLY the SQL query."""
                     logger.warning(f"Blocked dangerous SQL sequence '{seq}': {sql_query[:100]}")
                     return f"Query contains prohibited keyword: {seq}"
 
-            if sql_query.count(';') > 1:
+            # Any semicolon other than a single trailing one implies a second
+            # statement (sqlite3 would reject it anyway; fail early and clearly).
+            if ';' in sql_query.strip().rstrip(';'):
                 return "Multiple SQL statements are not allowed."
 
             cursor.execute(sql_query)
@@ -98,7 +108,8 @@ Return ONLY the SQL query."""
             conn.close()
 
     except sqlite3.OperationalError as e:
-        if "locked" in str(e).lower() or "timeout" in str(e).lower():
+        err = str(e).lower()
+        if "locked" in err or "timeout" in err or "interrupt" in err:
             return "Query timeout exceeded. Please simplify your query."
         return f"SQL Error: {sanitize_error_message(e)}"
     except Exception as e:

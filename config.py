@@ -66,7 +66,7 @@ IGNORED_FILES = {
 }
 
 # ── Ensure directories exist with restricted permissions ──────────────────────
-for _dir in [UPLOAD_DIR, CHATS_DIR]:
+for _dir in [UPLOAD_DIR, CHATS_DIR, DB_DIRECTORY]:
     os.makedirs(_dir, exist_ok=True)
     try:
         os.chmod(_dir, 0o700)
