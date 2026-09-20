@@ -223,8 +223,10 @@ def save_session(session_id: str, messages: list) -> None:
 
         # Atomic replace: write to a temp file (created 0o600) and rename over
         # the target, so concurrent readers never observe a truncated file and
-        # the data is never on disk with default-umask permissions.
-        tmp_path = f"{path}.tmp"
+        # the data is never on disk with default-umask permissions. A unique
+        # suffix keeps two concurrent writers of the same session from racing on
+        # a single shared temp path.
+        tmp_path = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             with os.fdopen(fd, "w") as f:

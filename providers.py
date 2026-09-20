@@ -13,9 +13,12 @@ import importlib.util
 import json
 import logging
 import os
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from config import OLLAMA_BASE_URL
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import Runnable
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +209,7 @@ def supports_vision(provider_type: str) -> bool:
 
 def build_chat_llm(provider_type: str, model: str, api_key: Optional[str] = None,
                    base_url: Optional[str] = None, callback=None,
-                   temperature: float = 0.2):
+                   temperature: float = 0.2) -> "Optional[Runnable]":
     """Build a chat LLM whose ``.invoke(prompt)`` returns a plain ``str``.
 
     Returns ``None`` if the backend can't be constructed (missing package,

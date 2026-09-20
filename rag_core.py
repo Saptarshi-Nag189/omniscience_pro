@@ -72,7 +72,12 @@ def ingest_documents(vectorstore, documents: List[Document]) -> None:
 def delete_file_from_db(vectorstore, filename: str) -> None:
     """Remove all chunks for a given filename from the vector store."""
     try:
-        vectorstore._collection.delete(where={"filename": filename})
+        # Public Chroma API: look up the matching chunk ids, then delete by id.
+        # (Chroma.delete only accepts ids, not a where-filter.)
+        existing = vectorstore.get(where={"filename": filename})
+        ids = existing.get("ids", [])
+        if ids:
+            vectorstore.delete(ids=ids)
         st.toast(f"Deleted: {filename}")
     except Exception as e:
         logger.warning(f"Failed to delete '{filename}' from vector store: {e}")
@@ -81,7 +86,7 @@ def delete_file_from_db(vectorstore, filename: str) -> None:
 def get_all_filenames(vectorstore) -> List[str]:
     """Return unique filenames stored in the vector store metadata."""
     try:
-        data = vectorstore._collection.get(include=['metadatas'])
+        data = vectorstore.get(include=['metadatas'])
         return list({m['filename'] for m in data['metadatas'] if 'filename' in m})
     except Exception as e:
         logger.warning(f"Failed to list filenames from vector store: {e}")
@@ -106,7 +111,7 @@ def list_ollama_models() -> List[str]:
 def get_loaded_documents(vectorstore) -> List[str]:
     """Return unique source filenames currently in the vectorstore."""
     try:
-        data = vectorstore._collection.get(include=["metadatas"])
+        data = vectorstore.get(include=["metadatas"])
         sources = {
             m.get("filename") or m.get("source", "")
             for m in data["metadatas"]

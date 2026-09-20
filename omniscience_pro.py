@@ -25,9 +25,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import streamlit as st
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import Runnable
 
 from config import DB_DIRECTORY, MAX_FILE_SIZE_MB, UPLOAD_DIR
 from file_utils import cleanup_old_uploads, process_uploaded_files, scan_directory
@@ -109,7 +112,7 @@ def _current_selection() -> LLMSelection:
     return sel if isinstance(sel, LLMSelection) else LLMSelection()
 
 
-def _make_llm(callback=None):
+def _make_llm(callback=None) -> "Optional[Runnable]":
     """Build the chat LLM from the current sidebar provider/model selection."""
     sel = _current_selection()
     return build_chat_llm(

@@ -97,8 +97,16 @@ def check_rate_limit(user_id: str = "default") -> bool:
 def sanitize_error_message(error: Exception) -> str:
     """Sanitize error messages to prevent information disclosure."""
     error_str = str(error)
+    # Bound the input before running any regex over it. The text may originate
+    # from provider error responses (attacker-influenceable), and unbounded
+    # backtracking over a long string is a denial-of-service risk.
+    if len(error_str) > 500:
+        error_str = error_str[:500]
     error_str = _redact_api_keys(error_str)
-    error_str = re.sub(r'(/[^\s]+)+', '[PATH]', error_str)
+    # Non-ambiguous path pattern: '\S' already includes '/', so '/\S+' collapses
+    # a whole path in a single linear pass. The previous nested-quantifier form
+    # '(/[^\s]+)+' had the classic catastrophic-backtracking shape.
+    error_str = re.sub(r'/\S+', '[PATH]', error_str)
     error_str = re.sub(
         r'(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE)[\s\S]*', '[SQL]',
         error_str, flags=re.IGNORECASE

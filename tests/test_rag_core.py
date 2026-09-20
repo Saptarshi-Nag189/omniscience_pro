@@ -66,7 +66,9 @@ def test_list_ollama_models_empty_list_when_no_models(monkeypatch):
 
 def _fake_vs(metadatas):
     vs = MagicMock()
-    vs._collection.get.return_value = {"metadatas": metadatas}
+    # rag_core now uses the public Chroma API (vectorstore.get), not the
+    # private _collection.get.
+    vs.get.return_value = {"metadatas": metadatas}
     return vs
 
 
@@ -88,7 +90,7 @@ def test_get_loaded_documents_falls_back_to_source_key():
 
 def test_get_loaded_documents_returns_empty_on_error():
     vs = MagicMock()
-    vs._collection.get.side_effect = Exception("boom")
+    vs.get.side_effect = Exception("boom")
     assert get_loaded_documents(vs) == []
 
 
