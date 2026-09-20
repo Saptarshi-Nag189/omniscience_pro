@@ -1,5 +1,7 @@
 """Tests for directory-scanning security guards."""
 
+from unittest.mock import MagicMock
+
 import file_utils
 
 
@@ -89,3 +91,46 @@ def test_cleanup_removes_old_uploads(tmp_path, monkeypatch):
 def test_cleanup_handles_missing_dir(monkeypatch):
     monkeypatch.setattr(file_utils, "UPLOAD_DIR", "/nonexistent/upload/dir")
     assert file_utils.cleanup_old_uploads() == 0
+
+
+# ── read_file_content ─────────────────────────────────────────────────────────
+
+def test_read_utf8_content(tmp_path):
+    p = tmp_path / "a.txt"
+    p.write_text("hello world", encoding="utf-8")
+    assert file_utils.read_file_content(p) == "hello world"
+
+
+def test_read_latin1_fallback(tmp_path):
+    # bytes that are invalid UTF-8 but valid latin-1 — must not be dropped.
+    p = tmp_path / "b.txt"
+    p.write_bytes("café".encode("latin-1"))
+    assert file_utils.read_file_content(p) == "café"
+
+
+def test_read_oversize_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(file_utils, "MAX_FILE_SIZE_MB", 0.000001)  # ~1 byte cap
+    p = tmp_path / "big.txt"
+    p.write_text("x" * 100)
+    assert file_utils.read_file_content(p) == ""
+
+
+def test_read_missing_file_returns_empty(tmp_path):
+    assert file_utils.read_file_content(tmp_path / "nope.txt") == ""
+
+
+# ── get_text_splitter ─────────────────────────────────────────────────────────
+
+def test_get_text_splitter_uses_language_for_code(monkeypatch):
+    splitter_cls = MagicMock()
+    monkeypatch.setattr(file_utils, "RecursiveCharacterTextSplitter", splitter_cls)
+    file_utils.get_text_splitter(".py")
+    assert splitter_cls.from_language.called
+
+
+def test_get_text_splitter_default_for_unknown(monkeypatch):
+    splitter_cls = MagicMock()
+    monkeypatch.setattr(file_utils, "RecursiveCharacterTextSplitter", splitter_cls)
+    file_utils.get_text_splitter(".xyz")
+    assert not splitter_cls.from_language.called
+    assert splitter_cls.called  # fell back to the plain constructor

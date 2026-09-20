@@ -118,6 +118,36 @@ def test_non_secret_error_untouched():
     assert "model not found" in out
 
 
+def test_redacts_filesystem_paths():
+    out = sanitize_error_message(Exception("could not open /home/user/secret/data.db"))
+    assert "/home/user" not in out
+    assert "[PATH]" in out
+
+
+def test_redacts_sql_statements():
+    out = sanitize_error_message(Exception("syntax error near SELECT * FROM users"))
+    assert "users" not in out
+    assert "[SQL]" in out
+
+
+def test_truncates_long_messages_to_200_chars():
+    out = sanitize_error_message(Exception("x" * 1000))
+    # 200 chars of content plus the ellipsis marker.
+    assert out.endswith("...")
+    assert len(out) <= 203
+
+
+def test_redaction_is_linear_on_pathological_input():
+    # A long run of slashes is the catastrophic-backtracking trigger for the
+    # old '(/[^\s]+)+' pattern. This must complete near-instantly.
+    import time
+    evil = "/" + "a/" * 5000 + " boom"
+    start = time.perf_counter()
+    out = sanitize_error_message(Exception(evil))
+    assert time.perf_counter() - start < 1.0
+    assert "[PATH]" in out
+
+
 def test_redact_secrets_public_helper():
     from security import redact_secrets
     out = redact_secrets("401: Incorrect API key provided: sk-proj0123456789abcdef")

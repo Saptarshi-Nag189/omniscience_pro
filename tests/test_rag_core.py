@@ -18,7 +18,12 @@ for mod in [
         sys.modules[mod] = MagicMock()
 
 import rag_core  # noqa: E402
-from rag_core import get_loaded_documents, list_ollama_models  # noqa: E402
+from rag_core import (  # noqa: E402
+    fuzzy_match_filenames,
+    get_loaded_documents,
+    list_ollama_models,
+    parse_file_mentions,
+)
 
 # ── list_ollama_models ────────────────────────────────────────────────────────
 
@@ -92,6 +97,73 @@ def test_get_loaded_documents_returns_empty_on_error():
     vs = MagicMock()
     vs.get.side_effect = Exception("boom")
     assert get_loaded_documents(vs) == []
+
+
+# ── parse_file_mentions ───────────────────────────────────────────────────────
+
+def test_parse_plain_mention():
+    mentions, clean = parse_file_mentions("explain @foo.py please")
+    assert mentions == ["foo.py"]
+    assert clean == "explain please"
+
+
+def test_parse_quoted_mention_with_spaces():
+    mentions, clean = parse_file_mentions('look at @"my file.py" now')
+    assert mentions == ["my file.py"]
+    assert clean == "look at now"
+
+
+def test_parse_multiple_mentions():
+    mentions, clean = parse_file_mentions("@a.py and @b.md")
+    assert mentions == ["a.py", "b.md"]
+    assert clean == "and"
+
+
+def test_parse_no_mentions_returns_original_query():
+    mentions, clean = parse_file_mentions("just a normal question")
+    assert mentions == []
+    assert clean == "just a normal question"
+
+
+def test_parse_only_mention_falls_back_to_original_query():
+    # When stripping mentions would leave an empty query, the original is kept
+    # so the retriever still has something to search on.
+    mentions, clean = parse_file_mentions("@foo.py")
+    assert mentions == ["foo.py"]
+    assert clean == "@foo.py"
+
+
+def test_parse_ignores_email_addresses():
+    # foo@bar.com must not be read as a @bar.com file mention.
+    mentions, clean = parse_file_mentions("send it to foo@bar.com")
+    assert mentions == []
+    assert "foo@bar.com" in clean
+
+
+# ── fuzzy_match_filenames ─────────────────────────────────────────────────────
+
+def test_fuzzy_exact_basename_match():
+    matched = fuzzy_match_filenames(["main.py"], ["/src/main.py", "/src/util.py"])
+    assert matched == ["/src/main.py"]
+
+
+def test_fuzzy_case_insensitive_and_partial():
+    matched = fuzzy_match_filenames(["MAIN"], ["/src/main.py"])
+    assert matched == ["/src/main.py"]
+
+
+def test_fuzzy_match_without_extension():
+    matched = fuzzy_match_filenames(["util"], ["/src/util.py"])
+    assert matched == ["/src/util.py"]
+
+
+def test_fuzzy_no_match_returns_empty():
+    assert fuzzy_match_filenames(["missing.py"], ["/src/main.py"]) == []
+
+
+def test_fuzzy_dedups_across_mentions():
+    matched = fuzzy_match_filenames(["main", "main.py"], ["/src/main.py"])
+    assert matched == ["/src/main.py"]
 
 
 # ── BytesWrapper (moved from omniscience_pro.py) ──────────────────────────────

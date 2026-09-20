@@ -125,11 +125,15 @@ def get_loaded_documents(vectorstore) -> List[str]:
 # ── File mention parsing ──────────────────────────────────────────────────────
 
 def parse_file_mentions(query: str) -> Tuple[List[str], str]:
-    """Parse @filename mentions from a query string.
+    r"""Parse @filename mentions from a query string.
 
     Returns (list_of_mentions, cleaned_query_without_mentions).
+
+    The ``(?<!\w)`` lookbehind keeps an email address like ``foo@bar.com`` from
+    being parsed as a ``@bar.com`` file mention — a mention must start at a word
+    boundary (line start or after whitespace/punctuation).
     """
-    pattern = r'@"([^"]+)"|@(\S+)'
+    pattern = r'(?<!\w)@"([^"]+)"|(?<!\w)@(\S+)'
     mentions = [m.group(1) or m.group(2) for m in re.finditer(pattern, query)]
     clean_query = ' '.join(re.sub(pattern, '', query).split())
     return mentions, clean_query if clean_query else query
