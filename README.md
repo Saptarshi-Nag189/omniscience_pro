@@ -3,7 +3,7 @@
 A local RAG (Retrieval-Augmented Generation) system with web search, academic research integration, and multi-session chat management. Runs entirely offline using Ollama.
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-red)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.37%2B-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Features
@@ -12,8 +12,9 @@ A local RAG (Retrieval-Augmented Generation) system with web search, academic re
 - 🌐 **Web Search**: Augment responses with DuckDuckGo search results
 - 📚 **Academic Research**: Search Semantic Scholar, arXiv, and OpenAlex
 - 💾 **Session Management**: Persistent chat history with auto-titles
-- 🖼️ **Vision Mode**: Analyze images with LLaVA
+- 🖼️ **Vision Mode**: Analyze images with LLaVA (rate-limited and size-capped like other uploads)
 - 🗃️ **SQL Mode**: Query SQLite databases with natural language
+- ⏹️ **Interruptible Streaming**: A working Stop button halts a chat/RAG generation mid-stream (requires Streamlit ≥ 1.37)
 - 🔒 **Security Hardened**: Input validation, path traversal protection, SQL injection prevention, SQLite-backed persistent rate limiting
 - 📋 **Real Clipboard Copy**: One-click copy of responses via browser clipboard API
 - 🧩 **Modular Architecture**: 10 focused modules for easy navigation and extension
