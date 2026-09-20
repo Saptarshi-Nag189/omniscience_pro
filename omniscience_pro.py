@@ -21,6 +21,7 @@ _handle_chat_input().
 import base64
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -71,6 +72,7 @@ from session import (
     save_session,
 )
 from sql_mode import query_sqlite_db
+from streaming import LLMWorker, QueueStreamHandler
 from ui_components import (
     PURPLE_THEME_CSS,
     SQL_PULSE_JS,
@@ -606,14 +608,18 @@ def _answer_sql(prompt: str, llm, thinking_placeholder, response_placeholder) ->
     return response_content
 
 
-def _answer_rag(prompt: str, llm, thinking_placeholder, response_placeholder):
-    """Answer a chat prompt via RAG (or plain LLM + optional search results).
+def _prepare_rag(prompt: str) -> tuple[str, list, list]:
+    """Build the prompt to stream for a chat/RAG turn (runs on the main thread).
 
-    Returns (response_content, sources).
+    Does retrieval, @mention filtering, and optional web/academic augmentation,
+    then returns ``(prompt_to_stream, sources, notices)`` where ``notices`` is a
+    list of ``(level, message)`` pairs to render alongside the streamed answer.
+    The actual token streaming is done by the caller in a background thread.
     """
     web_results = ""
     academic_results = ""
-    sources = []
+    sources: list = []
+    notices: list = []
 
     if st.session_state.web_search_enabled and HAS_WEB_SEARCH:
         web_results = run_web_search(prompt)
@@ -638,11 +644,11 @@ def _answer_rag(prompt: str, llm, thinking_placeholder, response_placeholder):
                 ]
                 if filtered_docs:
                     retrieved_docs = filtered_docs
-                    st.info(f"📎 Focused on: {', '.join([os.path.basename(f) for f in matched_files[:5]])}")
+                    notices.append(("info", f"📎 Focused on: {', '.join([os.path.basename(f) for f in matched_files[:5]])}"))
                 else:
-                    st.warning("⚠️ No content found in mentioned files. Showing general results.")
+                    notices.append(("warning", "⚠️ No content found in mentioned files. Showing general results."))
             else:
-                st.warning(f"⚠️ Could not find files matching: {', '.join(file_mentions)}")
+                notices.append(("warning", f"⚠️ Could not find files matching: {', '.join(file_mentions)}"))
 
         rag_context = "\n\n".join([doc.page_content for doc in retrieved_docs])
         sources = list(set([doc.metadata.get('source', 'Unknown') for doc in retrieved_docs]))
@@ -654,46 +660,30 @@ def _answer_rag(prompt: str, llm, thinking_placeholder, response_placeholder):
             )
 
         history_parts = build_conversation_history(st.session_state.messages)
-
-        unified_prompt = _build_prompt(
+        prompt_to_stream = _build_prompt(
             prompt, history_parts, rag_context=rag_context,
             web_results=web_results, academic_results=academic_results,
         )
-
-        response_content = llm.invoke(unified_prompt)
-        thinking_placeholder.empty()
-        response_placeholder.markdown(response_content)
-
-        if sources:
-            with st.expander("Code Sources"):
-                for s in sources:
-                    st.markdown(f"- `{s}`")
-
-        external_sources = []
-        if web_results:
-            external_sources.append("Web Search (DuckDuckGo)")
-        if academic_results:
-            external_sources.append("Academic (arXiv, Semantic Scholar, OpenAlex)")
-        if external_sources:
-            st.info(f"Sources: {', '.join(external_sources)}")
-
-        copy_to_clipboard(response_content, label="Copy Response")
     else:
-        # No vectorstore — use LLM with optional search results
+        # No vectorstore — use LLM with optional search results.
         history_parts = build_conversation_history(st.session_state.messages)
-
         if history_parts or academic_results or web_results:
-            augmented_prompt = _build_prompt(
+            prompt_to_stream = _build_prompt(
                 prompt, history_parts,
                 web_results=web_results, academic_results=academic_results,
             )
-            response_content = llm.invoke(augmented_prompt)
         else:
-            response_content = llm.invoke(prompt)
-        thinking_placeholder.empty()
-        response_placeholder.markdown(response_content)
+            prompt_to_stream = prompt
 
-    return response_content, sources
+    external_sources = []
+    if web_results:
+        external_sources.append("Web Search (DuckDuckGo)")
+    if academic_results:
+        external_sources.append("Academic (arXiv, Semantic Scholar, OpenAlex)")
+    if external_sources:
+        notices.append(("info", f"Sources: {', '.join(external_sources)}"))
+
+    return prompt_to_stream, sources, notices
 
 
 def _report_model_load_failure():
@@ -706,65 +696,177 @@ def _report_model_load_failure():
         st.error("Failed to load the model. Check the provider package is installed, the model name, and your API key.")
 
 
-def _handle_chat_input(mode: str):
-    prompt = st.chat_input("Enter query...")
-    if not prompt or mode == "Vision (Images)":
-        return
-
-    st.session_state.messages.append({"role": "user", "content": prompt})
+def _append_assistant(content: str, sources=None) -> None:
+    """Record an assistant message and persist the session."""
+    st.session_state.messages.append(
+        {"role": "assistant", "content": content, "sources": sources or []}
+    )
     save_session(st.session_state.current_session, st.session_state.messages)
-    with st.chat_message("user"):
-        st.markdown(prompt)
 
+
+def _render_notices(notices) -> None:
+    for level, text in notices:
+        (st.info if level == "info" else st.warning)(text)
+
+
+def _run_sql_synchronously(prompt: str) -> None:
+    """Answer a SQL turn synchronously.
+
+    SQL is a multi-step generate→run→summarise chain rather than a single token
+    stream, so it is not interruptible and shows no Stop button.
+    """
     with st.chat_message("assistant"):
-        thinking_placeholder = st.empty()
-        thinking_placeholder.markdown(THINKING_HTML, unsafe_allow_html=True)
-
-        stop_button_placeholder = st.empty()
-        if stop_button_placeholder.button("⏹ Stop Generation", key=f"stop_{len(st.session_state.messages)}"):
-            st.session_state.stop_generation = True
-            stop_button_placeholder.empty()
-
-        # A stale stop flag from a click after the previous generation finished
-        # must not kill this request at its first token.
-        st.session_state.stop_generation = False
-
+        thinking = st.empty()
+        thinking.markdown(THINKING_HTML, unsafe_allow_html=True)
         response_placeholder = st.empty()
-        stream_handler = StreamHandler(response_placeholder, thinking_placeholder=thinking_placeholder)
-        llm = _make_llm(stream_handler)
-
-        sources = []
-
-        if not check_rate_limit("llm_request"):
-            thinking_placeholder.empty()
-            stop_button_placeholder.empty()
-            st.error("Rate limit exceeded. Please wait a moment before sending another message.")
-        elif llm:
+        llm = _make_llm(StreamHandler(response_placeholder, thinking_placeholder=thinking))
+        if not llm:
+            thinking.empty()
+            _report_model_load_failure()
+            content = "Failed to load the model."
+        else:
             try:
-                if mode == "Database (SQL)":
-                    response_content = _answer_sql(prompt, llm, thinking_placeholder, response_placeholder)
-                else:
-                    response_content, sources = _answer_rag(prompt, llm, thinking_placeholder, response_placeholder)
-
-                st.session_state.messages.append({"role": "assistant", "content": response_content, "sources": sources})
-                save_session(st.session_state.current_session, st.session_state.messages)
-                stop_button_placeholder.empty()
-            except StopIteration:
-                thinking_placeholder.empty()
-                stop_button_placeholder.empty()
-                partial_response = stream_handler.text if stream_handler.text else "(Generation stopped)"
-                response_placeholder.markdown(partial_response + "\n\n*[Generation stopped by user]*")
-                st.session_state.messages.append({"role": "assistant", "content": partial_response, "sources": sources})
-                save_session(st.session_state.current_session, st.session_state.messages)
+                content = _answer_sql(prompt, llm, thinking, response_placeholder)
             except Exception as e:
-                thinking_placeholder.empty()
-                stop_button_placeholder.empty()
+                thinking.empty()
                 logger.error(f"Error processing request: {redact_secrets(e)}")
                 st.error(f"Error: {sanitize_error_message(e)}")
-        else:
-            thinking_placeholder.empty()
-            stop_button_placeholder.empty()
+                content = f"Error: {sanitize_error_message(e)}"
+    _append_assistant(content)
+    st.rerun()
+
+
+def _start_generation(mode: str, prompt: str) -> None:
+    """Begin answering the pending user turn.
+
+    SQL, rate-limit and setup failures resolve synchronously (they append an
+    assistant message and rerun). A chat/RAG turn spawns a background
+    :class:`LLMWorker` and stores it in ``st.session_state.gen`` for the
+    polling fragment to drive.
+    """
+    if not check_rate_limit("llm_request"):
+        msg = "Rate limit exceeded. Please wait a moment before sending another message."
+        with st.chat_message("assistant"):
+            st.error(msg)
+        _append_assistant(msg)
+        st.rerun()
+        return
+
+    if mode == "Database (SQL)":
+        _run_sql_synchronously(prompt)
+        return
+
+    worker = LLMWorker()
+    llm = _make_llm(QueueStreamHandler(worker.queue, worker.stop_event))
+    if not llm:
+        with st.chat_message("assistant"):
             _report_model_load_failure()
+        _append_assistant("Failed to load the model.")
+        st.rerun()
+        return
+
+    try:
+        with st.spinner("Retrieving context..."):
+            prompt_to_stream, sources, notices = _prepare_rag(prompt)
+    except Exception as e:
+        with st.chat_message("assistant"):
+            logger.error(f"Error preparing request: {redact_secrets(e)}")
+            st.error(f"Error: {sanitize_error_message(e)}")
+        _append_assistant(f"Error: {sanitize_error_message(e)}")
+        st.rerun()
+        return
+
+    worker.start(llm, prompt_to_stream)
+    st.session_state.gen = {
+        "worker": worker,
+        "sources": sources,
+        "notices": notices,
+        "accumulated": "",
+    }
+
+
+def _finalize_generation(*, stopped: bool = False) -> None:
+    """Persist the completed (or stopped) generation as an assistant message."""
+    gen = st.session_state.pop("gen", None)
+    if not gen:
+        return
+    worker = gen["worker"]
+    if worker.error is not None:
+        logger.error(f"Error processing request: {redact_secrets(worker.error)}")
+        _append_assistant(f"Error: {sanitize_error_message(worker.error)}")
+        return
+    text = worker.result if (not stopped and worker.result) else gen["accumulated"]
+    if stopped:
+        _append_assistant((text or "(Generation stopped)") + "\n\n*[Generation stopped by user]*",
+                          gen["sources"])
+    else:
+        _append_assistant(text or "(No response)", gen["sources"])
+
+
+@st.fragment
+def _run_generation_fragment() -> None:
+    """Poll the background worker and render streamed tokens with a working Stop
+    button. Self-reruns at fragment scope (so the Stop click is processed
+    between polls) until the worker finishes, then does a full rerun to hand
+    off to ``_render_history``.
+    """
+    gen = st.session_state.get("gen")
+    if not gen:
+        return
+    worker = gen["worker"]
+
+    with st.chat_message("assistant"):
+        _render_notices(gen["notices"])
+
+        if st.button("⏹ Stop Generation", key="stop_generation"):
+            worker.stop()
+            gen["accumulated"] += worker.drain()
+            _finalize_generation(stopped=True)
+            st.rerun()
+            return
+
+        placeholder = st.empty()
+        gen["accumulated"] += worker.drain()
+
+        if worker.done:
+            gen["accumulated"] += worker.drain()
+            _finalize_generation(stopped=worker.stopped)
+            st.rerun()
+            return
+
+        if gen["accumulated"]:
+            placeholder.markdown(gen["accumulated"] + "▌")
+        else:
+            placeholder.markdown(THINKING_HTML, unsafe_allow_html=True)
+
+        time.sleep(0.08)
+        st.rerun(scope="fragment")
+
+
+def _handle_chat_input(mode: str) -> None:
+    if mode == "Vision (Images)":
+        return
+
+    # A generation in flight takes priority: keep polling it and ignore new
+    # input until it finishes (a full rerun re-enters here after each poll).
+    if st.session_state.get("gen") is not None:
+        _run_generation_fragment()
+        return
+
+    prompt = st.chat_input("Enter query...")
+    if prompt:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        save_session(st.session_state.current_session, st.session_state.messages)
+        st.rerun()
+
+    msgs = st.session_state.messages
+    pending = bool(msgs) and msgs[-1]["role"] == "user" and "image" not in msgs[-1]
+    if not pending:
+        return
+
+    _start_generation(mode, msgs[-1]["content"])
+    if st.session_state.get("gen") is not None:
+        _run_generation_fragment()
 
 
 # ═══════════════════════════════════════════════════════════════════

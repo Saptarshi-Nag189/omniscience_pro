@@ -160,9 +160,6 @@ class StreamHandler(BaseCallbackHandler):
         self.first_token = True
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
-        if st.session_state.get('stop_generation', False):
-            st.session_state.stop_generation = False
-            raise StopIteration("Generation stopped by user")
         if self.first_token and self.thinking_placeholder:
             self.thinking_placeholder.empty()
             self.first_token = False

@@ -24,6 +24,9 @@ def _stub_if_missing(name: str, **attrs):
 # ── Streamlit ────────────────────────────────────────────────────────────────
 _st = MagicMock(name="streamlit")
 _st.cache_resource = lambda fn=None, **kw: (fn if fn else lambda f: f)
+# st.fragment is used as a bare decorator (@st.fragment) at import time — make it
+# a transparent pass-through so importing the app under stubs doesn't fail.
+_st.fragment = lambda fn=None, **kw: (fn if fn else lambda f: f)
 _stub_if_missing("streamlit", **{k: getattr(_st, k) for k in dir(_st)})
 
 _comp = MagicMock(name="streamlit.components.v1")
@@ -52,8 +55,14 @@ for _pkg in [
 ]:
     _stub_if_missing(_pkg)
 
-# Populate the classes/functions actually referenced at import time
-sys.modules["langchain_core.callbacks.base"].BaseCallbackHandler = MagicMock
+# Populate the classes/functions actually referenced at import time.
+# BaseCallbackHandler is a real (empty) class, not a MagicMock, so the handlers
+# that subclass it (StreamHandler, QueueStreamHandler) instantiate normally.
+class _BaseCallbackHandler:  # noqa: N801 - mirrors the stubbed public name
+    pass
+
+
+sys.modules["langchain_core.callbacks.base"].BaseCallbackHandler = _BaseCallbackHandler
 sys.modules["langchain_core.documents"].Document = MagicMock
 sys.modules["langchain_core.prompts"].PromptTemplate = MagicMock
 sys.modules["langchain_text_splitters"].RecursiveCharacterTextSplitter = MagicMock
