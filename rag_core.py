@@ -51,12 +51,16 @@ def initialize_vectorstore(embeddings, force_recreate: bool = False):
             client=client, collection_name="omniscience",
             embedding_function=embeddings,
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to initialize vector store: {e}")
         return None
 
 
 def ingest_documents(vectorstore, documents: List[Document]) -> None:
     """Batch-add documents to the vector store."""
+    if vectorstore is None:
+        st.error("Vector database is unavailable — see logs for details.")
+        return
     if not documents:
         return
     batch_size = 100
@@ -70,8 +74,8 @@ def delete_file_from_db(vectorstore, filename: str) -> None:
     try:
         vectorstore._collection.delete(where={"filename": filename})
         st.toast(f"Deleted: {filename}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to delete '{filename}' from vector store: {e}")
 
 
 def get_all_filenames(vectorstore) -> List[str]:
@@ -79,7 +83,8 @@ def get_all_filenames(vectorstore) -> List[str]:
     try:
         data = vectorstore._collection.get(include=['metadatas'])
         return list({m['filename'] for m in data['metadatas'] if 'filename' in m})
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to list filenames from vector store: {e}")
         return []
 
 
@@ -93,7 +98,8 @@ def list_ollama_models() -> List[str]:
         with urllib.request.urlopen(req, timeout=2) as resp:
             data = _json.loads(resp.read())
             return [m["name"] for m in data.get("models", [])]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not list Ollama models (is Ollama running?): {e}")
         return []
 
 
@@ -106,7 +112,8 @@ def get_loaded_documents(vectorstore) -> List[str]:
             for m in data["metadatas"]
         }
         return sorted(s for s in sources if s)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to list loaded documents from vector store: {e}")
         return []
 
 

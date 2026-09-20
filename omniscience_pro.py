@@ -416,9 +416,12 @@ def _render_rag_data_source():
         if st.button("SCAN"):
             with st.spinner("Scanning folder..."):
                 st.session_state.vectorstore = initialize_vectorstore(load_embeddings(), False)
-                docs = scan_directory(root_path)
-                ingest_documents(st.session_state.vectorstore, docs)
-            st.success(f"✅ Scanned {len(docs)} documents from {root_path}")
+                if st.session_state.vectorstore is None:
+                    st.error("Could not initialize the vector database. Check the logs and try again.")
+                else:
+                    docs = scan_directory(root_path)
+                    ingest_documents(st.session_state.vectorstore, docs)
+                    st.success(f"✅ Scanned {len(docs)} documents from {root_path}")
     with c2:
         if st.button("PURGE"):
             initialize_vectorstore(load_embeddings(), True)
@@ -451,8 +454,11 @@ def _render_rag_data_source():
 
     if uploaded_files and st.button("PROCESS"):
         st.session_state.vectorstore = initialize_vectorstore(load_embeddings(), False)
-        docs = process_uploaded_files(uploaded_files)
-        ingest_documents(st.session_state.vectorstore, docs)
+        if st.session_state.vectorstore is None:
+            st.error("Could not initialize the vector database. Check the logs and try again.")
+        else:
+            docs = process_uploaded_files(uploaded_files)
+            ingest_documents(st.session_state.vectorstore, docs)
 
     if st.session_state.vectorstore:
         loaded_docs = get_loaded_documents(st.session_state.vectorstore)
@@ -526,8 +532,8 @@ def _render_history():
                 if message.get("is_image_base64"):
                     try:
                         image_data = base64.b64decode(image_data)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to decode stored image, showing raw value: {e}")
                 st.image(image_data, caption="Uploaded Image", use_container_width=True)
 
             st.markdown(message["content"])
@@ -549,6 +555,12 @@ def _handle_vision_mode():
     img_file = st.file_uploader("Upload Image to Analyze", type=["png", "jpg", "jpeg", "webp"])
     if img_file and (prompt := st.chat_input("Ask about this image...")):
         image_bytes = img_file.getvalue()
+        # Bound the image the same way RAG/SQL uploads are bounded — otherwise the
+        # raw bytes are base64-encoded into the session JSON and shipped to the
+        # provider unbounded (memory, disk and payload blowup).
+        if len(image_bytes) > MAX_FILE_SIZE_MB * 1024 * 1024:
+            st.warning(f"Image exceeds the {MAX_FILE_SIZE_MB} MB limit. Please upload a smaller image.")
+            return
         st.session_state.messages.append({"role": "user", "content": prompt, "image": image_bytes})
         save_session(st.session_state.current_session, st.session_state.messages)
         save_last_session(st.session_state.current_session)
@@ -560,6 +572,11 @@ def _handle_vision_mode():
         prompt_text = last_msg["content"]
 
         with st.chat_message("assistant"):
+            # Vision is the most expensive request type — gate it on the same
+            # rate limiter as chat and SQL so it can't bypass the cost control.
+            if not check_rate_limit("vision_request"):
+                st.error("Rate limit exceeded. Please wait a moment before analyzing another image.")
+                return
             with st.spinner("Analyzing image..."):
                 sel = _current_selection()
                 response_content = process_vision_request(
@@ -647,23 +664,18 @@ def _answer_rag(prompt: str, llm, thinking_placeholder, response_placeholder):
         thinking_placeholder.empty()
         response_placeholder.markdown(response_content)
 
-        used_external_only = (
-            "based on external search" in response_content.lower()
-            or "based on web search" in response_content.lower()
-        )
-
-        if not used_external_only and sources:
+        if sources:
             with st.expander("Code Sources"):
                 for s in sources:
                     st.markdown(f"- `{s}`")
-        else:
-            external_sources = []
-            if web_results:
-                external_sources.append("Web Search (DuckDuckGo)")
-            if academic_results:
-                external_sources.append("Academic (arXiv, Semantic Scholar, OpenAlex)")
-            if external_sources:
-                st.info(f"Sources: {', '.join(external_sources)}")
+
+        external_sources = []
+        if web_results:
+            external_sources.append("Web Search (DuckDuckGo)")
+        if academic_results:
+            external_sources.append("Academic (arXiv, Semantic Scholar, OpenAlex)")
+        if external_sources:
+            st.info(f"Sources: {', '.join(external_sources)}")
 
         copy_to_clipboard(response_content, label="Copy Response")
     else:

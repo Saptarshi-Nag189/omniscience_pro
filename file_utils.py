@@ -55,8 +55,8 @@ def read_file_content(file_path: Path) -> str:
                     return f.read()
             except UnicodeDecodeError:
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to read {file_path.name}: {e}")
     return ""
 
 
